@@ -1,6 +1,5 @@
 {
   "privileges": [],
-
   "dataRoles": [
     { "name": "level1", "kind": "Grouping", "displayName": "Level 1 (Top)" },
     { "name": "level2", "kind": "Grouping", "displayName": "Level 2" },
@@ -8,7 +7,6 @@
     { "name": "level4", "kind": "Grouping", "displayName": "Level 4" },
     { "name": "level5", "kind": "Grouping", "displayName": "Level 5" }
   ],
-
   "dataViewMappings": [
     {
       "categorical": {
@@ -20,7 +18,7 @@
             { "for": { "in": "level4" } },
             { "for": { "in": "level5" } }
           ],
-          "dataReductionAlgorithm": { "top": {} }
+          "dataReductionAlgorithm": { "window": {} }
         }
       }
     }

@@ -131,14 +131,14 @@ export class Visual implements IVisual {
       cursor.value = (cursor.value ?? 0) + 1;
     }
 
-    // roll up values
+    // roll up values: Eltern = eigene Leaf-Counts + Summe der Kinder
     const rollup = (n: TreeNode): number => {
-      if (n.children && n.children.length) {
-        let s = 0;
+    let s = n.value ?? 0; // eigene terminale Einträge mitzählen
+    if (n.children && n.children.length) {
         for (const c of n.children) s += rollup(c);
-        n.value = s;
-      }
-      return n.value ?? 0;
+    }
+    n.value = s;
+    return s;
     };
     rollup(rootData);
 
@@ -187,13 +187,16 @@ export class Visual implements IVisual {
     paths.exit().remove();
 
     const pathsEnter = paths.enter()
-      .append("path")
-      .attr("stroke", "#fff")
-      .attr("stroke-width", 1)
-      .style("cursor", "pointer")
-      .on("click", (_, d) => this.zoomTo(root, d, arc, labelsMerged, color, getFill))
-      .on("mousemove", (ev, d) => this.showTooltip(ev as MouseEvent, d))
-      .on("mouseleave", () => this.hideTooltip());
+    .append("path")
+    .attr("stroke", "#fff")
+    .attr("stroke-width", 1)
+    .style("cursor", "pointer")
+    .on("click", (ev, d) => {
+        ev.stopPropagation();
+        this.zoomTo(root, d, arc, labelsMerged, color, getFill);
+    })
+    .on("mousemove", (ev, d) => this.showTooltip(ev as MouseEvent, d))
+    .on("mouseleave", () => this.hideTooltip());
 
     const pathsAll = pathsEnter.merge(paths as any)
       .attr("fill", d => getFill(d))
@@ -332,13 +335,15 @@ export class Visual implements IVisual {
 
     this.crumbsEl.html(html);
     this.crumbsEl.selectAll<HTMLAnchorElement, unknown>("a")
-      .on("click", (ev: MouseEvent) => {
+    .on("click", (ev: MouseEvent) => {
         ev.preventDefault();
+        ev.stopPropagation();                 // << hier neu
         const a = ev.currentTarget as HTMLAnchorElement;
         const depth = +a.getAttribute("data-depth")!;
+        const seq = node.ancestors().reverse();
         const target = seq.find(n => n.depth === depth) || root;
         onJump(target);
-      });
+    });
   }
 
   private showTooltip(ev: MouseEvent, d: d3.HierarchyRectangularNode<TreeNode>) {
