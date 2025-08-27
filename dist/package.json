@@ -1,0 +1,17 @@
+{
+		"version": "1.0.0.0",
+		"author": {"name":"Marcel","email":"if24b082@technikum-wien.at"},
+		"resources": [
+			{
+				"resourceId": "rId0",
+				"sourceType": 5,
+				"file": "resources/starburstsimple0195D57F49CDC347B7B59E21750C972DF4.pbiviz.json"
+			}
+		],
+		"visual": {"name":"starburstsimple01","displayName":"starburst_simple_01","guid":"starburstsimple0195D57F49CDC347B7B59E21750C972DF4","visualClassName":"Visual","version":"1.0.0.0","description":"A simple starburst chart.","supportUrl":"https://github.com/ItisMaci/StarburstChart_Simple_01","gitHubUrl":"https://github.com/ItisMaci/StarburstChart_Simple_01"},
+		"metadata": {
+			"pbivizjson": {
+				"resourceId": "rId0"
+			}
+		}
+	}
