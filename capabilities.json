@@ -5,31 +5,42 @@
     { "name": "level2", "kind": "Grouping", "displayName": "Level 2" },
     { "name": "level3", "kind": "Grouping", "displayName": "Level 3" },
     { "name": "level4", "kind": "Grouping", "displayName": "Level 4" },
-    { "name": "level5", "kind": "Grouping", "displayName": "Level 5" }
+    { "name": "level5", "kind": "Grouping", "displayName": "Level 5" },
+    { "name": "measure", "kind": "Measure", "displayName": "Values" }
   ],
+
   "dataViewMappings": [
     {
-      "categorical": {
-        "categories": {
-          "select": [
-            { "for": { "in": "level1" } },
-            { "for": { "in": "level2" } },
-            { "for": { "in": "level3" } },
-            { "for": { "in": "level4" } },
-            { "for": { "in": "level5" } }
-          ],
-          "dataReductionAlgorithm": {
-            "top": { "count": 30000 }
-          }
+      "matrix": {
+        "for": {
+            "rows": {
+                "levels": [
+                    { "for": { "in": "level1" } },
+                    { "for": { "in": "level2" } },
+                    { "for": { "in": "level3" } },
+                    { "for": { "in": "level4" } },
+                    { "for": { "in": "level5" } }
+                ],
+                "dataReductionAlgorithm": {
+                    "top": { "count": 30000 }
+                }
+            }
+        },
+        "values": {
+          "select": [{ "for": { "in": "measure" } }]
         }
       }
     }
   ],
+
   "objects": {
     "labels": {
       "displayName": "Labels",
       "properties": {
-        "fontSize": { "displayName": "Font size", "type": { "integer": true } }
+        "fontSize": {
+          "displayName": "Font size",
+          "type": { "integer": true }
+        }
       }
     }
   }

@@ -158,13 +158,14 @@ export class Visual implements IVisual {
 
   public update(options: VisualUpdateOptions): void {
     const dv: DataView | undefined = options.dataViews?.[0];
-    const catCols = dv?.categorical?.categories ?? [];
+    const matrix = dv?.matrix;
 
-    if (!catCols.length || !catCols[0].values.length) {
+    if (!matrix || !matrix.rows || !matrix.rows.root) {
       this.clear();
       return;
     }
 
+    // Measure size from the actual rendered container
     const visRect = (this.vis.node() as HTMLDivElement).getBoundingClientRect();
     this.width = Math.max(0, visRect.width);
     this.height = Math.max(0, visRect.height);
@@ -175,9 +176,10 @@ export class Visual implements IVisual {
       .attr("width", this.width)
       .attr("height", this.height);
 
-    const data = this.buildHierarchyFromPowerBI(catCols);
+    // ---- Build hierarchy from MATRIX rows (preserves parents without children) ----
+    const rootData = this.buildHierarchyFromMatrix(matrix);
 
-    const hierarchy = d3.hierarchy<HierarchyData>(data)
+    const hierarchy = d3.hierarchy<HierarchyData>(rootData)
       .sum(d => (d.children && d.children.length) ? 0 : (d.value || 0))
       .sort((a, b) => (b.value || 0) - (a.value || 0));
 
@@ -185,7 +187,7 @@ export class Visual implements IVisual {
     const rootPartitioned = partition(hierarchy);
     this.root = rootPartitioned;
 
-    // init tween state
+    // init tween state for smooth zoom
     this.root.each(d => (d as any).current = { x0: d.x0, x1: d.x1, y0: d.y0, y1: d.y1 });
 
     // stable palette by top-level names
@@ -196,6 +198,7 @@ export class Visual implements IVisual {
     // compute per-node colors (parent→child lightening)
     this.computeNodeColors();
 
+    // arc generator
     this.arc = d3.arc<any>()
       .startAngle((d: any) => d.x0)
       .endAngle((d: any) => d.x1)
@@ -204,9 +207,10 @@ export class Visual implements IVisual {
       .innerRadius((d: any) => d.y0)
       .outerRadius((d: any) => Math.max(d.y0, d.y1 - 1));
 
+    // data to draw (exclude root)
     this.nodes = this.root.descendants().filter(d => d.depth > 0);
 
-    // full-path key for stability (and breadcrumbs)
+    // full-path key
     const pathKey = (n: d3.HierarchyRectangularNode<HierarchyData>) =>
       n.ancestors().map(a => a.data.name).reverse().join("/");
 
@@ -262,70 +266,52 @@ export class Visual implements IVisual {
         exit => exit.remove()
       );
 
+    // LEGEND + BREADCRUMBS
     this.updateLegend();
     this.updateCrumbs(this.root);
   }
 
-  // ----------------- Helpers -----------------
+  // ----------------- MATRIX → HierarchyData -----------------
 
-  private buildHierarchyFromPowerBI(catCols: powerbi.DataViewCategoryColumn[]): HierarchyData {
-    type NodeExt = HierarchyData & { _childMap?: Map<string, NodeExt> };
-    const root: NodeExt = { name: "Wien", children: [], _childMap: new Map() };
+  private buildHierarchyFromMatrix(matrix: powerbi.DataViewMatrix): HierarchyData {
+    // We traverse the row tree: matrix.rows.root -> children[*] -> ...
+    // Each node’s .value is the grouping key at that level.
+    // Leaves may carry measures in node.values; if none, we count leaves as value=1.
+    const rootNode = matrix.rows!.root!;
+    const valueSources = matrix.valueSources || []; // optional measures
+    const measureIndex = valueSources.length ? 0 : -1; // use first measure if present
 
-    const rowCount = Math.max(...catCols.map(c => c.values.length));
-
-    const getVal = (col: powerbi.DataViewCategoryColumn, r: number) =>
-      r < col.values.length ? col.values[r] : null;
-
-    const norm = (v: any): string | null => {
-      if (v == null) return null;
-      const s = String(v).trim();
-      if (!s) return null;
-      const lo = s.toLowerCase();
-      return (lo === "null" || lo === "(blank)" || lo === "(empty)") ? null : s;
+    const toName = (v: any) => {
+      if (v == null) return "(blank)";
+      const s = String(v);
+      return s.trim().length ? s : "(blank)";
     };
 
-    for (let r = 0; r < rowCount; r++) {
-      const path: string[] = [];
-      for (let l = 0; l < catCols.length; l++) {
-        const raw = norm(getVal(catCols[l], r));
-        if (!raw) break; // stop at first missing level for this row
-        path.push(raw);
-      }
-      if (!path.length) continue;
+    const build = (node: powerbi.DataViewTreeNode, depth: number): HierarchyData => {
+      const name = depth === 0 ? "Wien" : toName(node.value);
+      const childrenNodes = (node.children || []) as powerbi.DataViewTreeNode[];
 
-      // walk/build
-      let current = root;
-      for (let i = 0; i < path.length; i++) {
-        const name = path[i];
-        current._childMap = current._childMap || new Map();
-        current.children = current.children || [];
-
-        if (!current._childMap.has(name)) {
-          const child: NodeExt = {
-            name,
-            children: [],
-            _childMap: new Map(),
-            __meta: { depth: i + 1 }
-          };
-          current._childMap.set(name, child);
-          current.children.push(child);
+      if (!childrenNodes.length) {
+        // Leaf: get measure value if available; otherwise count as 1
+        let leafVal = 1;
+        if (measureIndex >= 0 && node.values) {
+          const entry = (node.values as any)[measureIndex];
+          const maybe = entry && (entry.value ?? entry);
+          const num = typeof maybe === "number" ? maybe : Number(maybe);
+          if (!Number.isNaN(num)) leafVal = Math.max(0, num);
         }
-        current = current._childMap.get(name)!;
+        return { name, value: leafVal, __meta: { depth } };
       }
-      // count leaf
-      current.value = (current.value || 0) + 1;
-    }
 
-    // strip helper maps
-    const strip = (n: NodeExt) => {
-      delete n._childMap;
-      (n.children ?? []).forEach(strip as any);
+      const kids: HierarchyData[] = childrenNodes.map(c => build(c, depth + 1));
+      return { name, children: kids, __meta: { depth } };
     };
-    strip(root);
 
-    return root;
+    // Build tree under synthetic root
+    return build(rootNode as any, 0);
   }
+
+  // ----------------- Color scaling -----------------
 
   private computeNodeColors() {
     if (!this.root || !this.color) return;
@@ -338,7 +324,7 @@ export class Visual implements IVisual {
       const p = q.shift();
       const kids = p.children ?? [];
       if (kids.length) {
-        const t = 0.18; // how much to lighten per generation
+        const t = 0.18; // amount to lighten per generation
         for (const c of kids) {
           const parentFill = (p as any)._fill as string;
           (c as any)._fill = d3.interpolateLab(parentFill, baseBg)(t);
@@ -351,6 +337,8 @@ export class Visual implements IVisual {
   private getFill(d: d3.HierarchyRectangularNode<HierarchyData>) {
     return (d as any)._fill || "#ccc";
   }
+
+  // ----------------- Zoom/labels/legend/crumbs -----------------
 
   private zoomTo(p: d3.HierarchyRectangularNode<HierarchyData> | null) {
     if (!p || !this.root || !this.arc) return;
