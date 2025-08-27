@@ -1,9 +1,15 @@
+<<<<<<< HEAD
 import powerbi from "powerbi-visuals-api";
 import "./../style/visual.less";
+=======
+import "./../style/visual.less";
+import powerbi from "powerbi-visuals-api";
+>>>>>>> dev
 import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
 import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
 import IVisual = powerbi.extensibility.visual.IVisual;
 export declare class Visual implements IVisual {
+<<<<<<< HEAD
     private target;
     private updateCount;
     private textNode;
@@ -16,4 +22,12 @@ export declare class Visual implements IVisual {
      * This method is called once every time we open properties pane or when the user edit any format property.
      */
     getFormattingModel(): powerbi.visuals.FormattingModel;
+=======
+    private host;
+    private svg;
+    private container;
+    constructor(options: VisualConstructorOptions);
+    update(options: VisualUpdateOptions): void;
+    destroy(): void;
+>>>>>>> dev
 }

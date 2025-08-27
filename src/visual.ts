@@ -23,55 +23,119 @@
 *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 *  THE SOFTWARE.
 */
-"use strict";
 
-import powerbi from "powerbi-visuals-api";
-import { FormattingSettingsService } from "powerbi-visuals-utils-formattingmodel";
+// src/visual.ts
+"use strict";
 import "./../style/visual.less";
 
+import powerbi from "powerbi-visuals-api";
 import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
 import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
 import IVisual = powerbi.extensibility.visual.IVisual;
+import IVisualHost = powerbi.extensibility.visual.IVisualHost;
+import ISelectionId = powerbi.visuals.ISelectionId;
+import * as d3 from "d3";
+type Selection<T extends d3.BaseType> = d3.Selection<T, any, any, any>;
 
-import { VisualFormattingSettingsModel } from "./settings";
+interface CircleDatum {
+  label: string;
+  selectionId: ISelectionId;
+  idx: number;
+}
 
 export class Visual implements IVisual {
-    private target: HTMLElement;
-    private updateCount: number;
-    private textNode: Text;
-    private formattingSettings: VisualFormattingSettingsModel;
-    private formattingSettingsService: FormattingSettingsService;
+  private host: IVisualHost;
+  private svg: Selection<SVGSVGElement>;
+  private container: Selection<SVGGElement>;
 
-    constructor(options: VisualConstructorOptions) {
-        console.log('Visual constructor', options);
-        this.formattingSettingsService = new FormattingSettingsService();
-        this.target = options.element;
-        this.updateCount = 0;
-        if (document) {
-            const new_p: HTMLElement = document.createElement("p");
-            new_p.appendChild(document.createTextNode("Update count:"));
-            const new_em: HTMLElement = document.createElement("em");
-            this.textNode = document.createTextNode(this.updateCount.toString());
-            new_em.appendChild(this.textNode);
-            new_p.appendChild(new_em);
-            this.target.appendChild(new_p);
-        }
+  constructor(options: VisualConstructorOptions) {
+    this.host = options.host; // per tutorial pattern
+    this.svg = d3.select(options.element)
+      .append("svg")
+      .classed("circleCard", true);
+
+    this.container = this.svg.append("g").classed("container", true);
+  }
+
+  public update(options: VisualUpdateOptions): void {
+    const dv = options.dataViews?.[0];
+    const categorical = dv?.categorical;
+    const catCol = categorical?.categories?.[0];
+    const catValues = (catCol?.values ?? []) as any[];
+
+    const width = options.viewport.width;
+    const height = options.viewport.height;
+    this.svg.attr("width", width).attr("height", height);
+
+    if (!catCol || catValues.length === 0) {
+      this.container.selectAll("*").remove();
+      return;
     }
 
-    public update(options: VisualUpdateOptions) {
-        this.formattingSettings = this.formattingSettingsService.populateFormattingSettingsModel(VisualFormattingSettingsModel, options.dataViews[0]);
+    // ---- transform (like the tutorial’s createSelectorDataPoints) ----
+    const data: CircleDatum[] = catValues.map((v, i) => ({
+      label: v == null ? "" : String(v),
+      selectionId: this.host.createSelectionIdBuilder()
+        .withCategory(catCol, i)
+        .createSelectionId(),
+      idx: i
+    }));
 
-        console.log('Visual update', options);
-        if (this.textNode) {
-            this.textNode.textContent = (this.updateCount++).toString();
-        }
-    }
+    // ---- layout: band scale across X, centered vertically ----
+    const margins = { top: 8, right: 8, bottom: 24, left: 8 };
+    const innerW = Math.max(1, width - margins.left - margins.right);
+    const innerH = Math.max(1, height - margins.top - margins.bottom);
 
-    /**
-     * Returns properties pane formatting model content hierarchies, properties and latest formatting values, Then populate properties pane.
-     * This method is called once every time we open properties pane or when the user edit any format property. 
-     */
-    public getFormattingModel(): powerbi.visuals.FormattingModel {
-        return this.formattingSettingsService.buildFormattingModel(this.formattingSettings);
-    }
+    const x = d3.scaleBand<string>()
+      .domain(data.map(d => d.selectionId.getKey())) // stable domain
+      .range([0, innerW])
+      .padding(0.2);
+
+    const cy = margins.top + innerH / 2;
+    const radius = Math.max(4, Math.min(x.bandwidth(), innerH) / 3);
+
+    this.container.attr("transform", `translate(${margins.left},${margins.top})`);
+
+    // ---- data join: one group per category ----
+    const cards = this.container
+      .selectAll<SVGGElement, CircleDatum>("g.card")
+      .data(data, d => d.selectionId.getKey());
+
+    const enter = cards.enter()
+      .append("g")
+      .attr("class", "card");
+
+    enter.append("circle").attr("class", "circle");
+    enter.append("text").attr("class", "textLabel");
+
+    const merged = enter.merge(cards as any);
+
+    merged.attr("transform", d => {
+      const cx = (x(d.selectionId.getKey()) ?? 0) + x.bandwidth() / 2;
+      return `translate(${cx + margins.left},${cy})`; // margins.left already applied to container; adding again is optional
+    });
+
+    merged.select<SVGCircleElement>("circle.circle")
+      .attr("r", radius)
+      .style("fill", "white")
+      .style("fill-opacity", 0.5)
+      .style("stroke", "black")
+      .style("stroke-width", 2)
+        .on('mousemove', (event, d) => {
+            merged.select<SVGCircleElement>("circle.circle").style("fill", "black");
+        })
+        .on('mouseleave', (event, d) => {
+            merged.select<SVGCircleElement>("circle.circle").style("fill", "white");
+        });
+
+    merged.select<SVGTextElement>("text.textLabel")
+      .text(d => d.label)
+      .attr("text-anchor", "middle")
+      .attr("dy", radius + 14) // place text below circle
+      .style("font-size", `${Math.max(10, radius / 2.8)}px`);
+
+    cards.exit().remove();
+  }
+
+  public destroy(): void {}
 }
