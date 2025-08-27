@@ -33,51 +33,83 @@ import FormattingSettingsSlice = formattingSettings.Slice;
 import FormattingSettingsModel = formattingSettings.Model;
 
 /**
- * Data Point Formatting Card
+ * Labels Formatting Card
  */
-class DataPointCardSettings extends FormattingSettingsCard {
-    defaultColor = new formattingSettings.ColorPicker({
-        name: "defaultColor",
-        displayName: "Default color",
-        value: { value: "" }
-    });
-
-    showAllDataPoints = new formattingSettings.ToggleSwitch({
-        name: "showAllDataPoints",
-        displayName: "Show all",
+class LabelsCardSettings extends FormattingSettingsCard {
+    show = new formattingSettings.ToggleSwitch({
+        name: "show",
+        displayName: "Show labels",
         value: true
-    });
-
-    fill = new formattingSettings.ColorPicker({
-        name: "fill",
-        displayName: "Fill",
-        value: { value: "" }
-    });
-
-    fillRule = new formattingSettings.ColorPicker({
-        name: "fillRule",
-        displayName: "Color saturation",
-        value: { value: "" }
     });
 
     fontSize = new formattingSettings.NumUpDown({
         name: "fontSize",
-        displayName: "Text Size",
-        value: 12
+        displayName: "Font size",
+        value: 18
     });
 
-    name: string = "dataPoint";
-    displayName: string = "Data colors";
-    slices: Array<FormattingSettingsSlice> = [this.defaultColor, this.showAllDataPoints, this.fill, this.fillRule, this.fontSize];
+    name: string = "labels";
+    displayName: string = "Labels";
+    slices: Array<FormattingSettingsSlice> = [this.show, this.fontSize];
 }
 
 /**
-* visual settings model class
+ * Colors Formatting Card
+ */
+class ColorsCardSettings extends FormattingSettingsCard {
+    colorScheme = new formattingSettings.ItemDropdown({
+        name: "colorScheme",
+        displayName: "Color scheme",
+        items: [
+            { value: "tableau10", displayName: "Tableau 10" },
+            { value: "category10", displayName: "Category 10" },
+            { value: "pastel1", displayName: "Pastel 1" },
+            { value: "set3", displayName: "Set 3" }
+        ],
+        value: { value: "tableau10", displayName: "Tableau 10" }
+    });
+
+    name: string = "colors";
+    displayName: string = "Colors";
+    slices: Array<FormattingSettingsSlice> = [this.colorScheme];
+}
+
+/**
+ * Interaction Formatting Card
+ */
+class InteractionCardSettings extends FormattingSettingsCard {
+    enableZoom = new formattingSettings.ToggleSwitch({
+        name: "enableZoom",
+        displayName: "Enable zoom",
+        value: true
+    });
+
+    showBreadcrumbs = new formattingSettings.ToggleSwitch({
+        name: "showBreadcrumbs",
+        displayName: "Show breadcrumbs",
+        value: true
+    });
+
+    showTooltips = new formattingSettings.ToggleSwitch({
+        name: "showTooltips",
+        displayName: "Show tooltips",
+        value: true
+    });
+
+    name: string = "interaction";
+    displayName: string = "Interaction";
+    slices: Array<FormattingSettingsSlice> = [this.enableZoom, this.showBreadcrumbs, this.showTooltips];
+}
+
+/**
+* Visual settings model class
 *
 */
 export class VisualFormattingSettingsModel extends FormattingSettingsModel {
     // Create formatting settings model formatting cards
-    dataPointCard = new DataPointCardSettings();
+    labelsCard = new LabelsCardSettings();
+    colorsCard = new ColorsCardSettings();
+    interactionCard = new InteractionCardSettings();
 
-    cards = [this.dataPointCard];
+    cards = [this.labelsCard, this.colorsCard, this.interactionCard];
 }
