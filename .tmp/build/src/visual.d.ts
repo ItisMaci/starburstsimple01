@@ -14,8 +14,11 @@ export declare class Visual implements IVisual {
     private width;
     private height;
     private radius;
+    private hierarchyRoot;
     constructor(options: VisualConstructorOptions);
     update(options: VisualUpdateOptions): void;
+    private pathsMerged;
+    private labelsMerged;
     private zoomTo;
     private labelVisible;
     private labelTransform;
