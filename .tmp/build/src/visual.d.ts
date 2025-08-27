@@ -26,9 +26,7 @@ export declare class Visual implements IVisual {
     private label;
     constructor(options: VisualConstructorOptions);
     update(options: VisualUpdateOptions): void;
-    private buildHierarchyFromMatrix;
-    private computeNodeColors;
-    private getFill;
+    private buildHierarchyFromPowerBI;
     private zoomTo;
     private labelVisible;
     private labelTransform;
