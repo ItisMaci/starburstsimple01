@@ -133,12 +133,12 @@ export class Visual implements IVisual {
 
     // roll up values: Eltern = eigene Leaf-Counts + Summe der Kinder
     const rollup = (n: TreeNode): number => {
-    let s = n.value ?? 0; // eigene terminale Einträge mitzählen
-    if (n.children && n.children.length) {
-        for (const c of n.children) s += rollup(c);
-    }
-    n.value = s;
-    return s;
+        let s = n.value ?? 0;
+        if (n.children && n.children.length) {
+            for (const c of n.children) s += rollup(c);
+        }
+        n.value = s;
+        return s;
     };
     rollup(rootData);
 
@@ -179,10 +179,13 @@ export class Visual implements IVisual {
     const nodes: d3.HierarchyRectangularNode<TreeNode>[] =
       root.descendants().filter(d => d.depth > 0);
 
+    const nodeKey = (d: d3.HierarchyRectangularNode<TreeNode>) =>
+      d.ancestors().map(n => n.data.name).reverse().join(">");
+
     // ---- Paths ----
     const paths = this.g
       .selectAll<SVGPathElement, d3.HierarchyRectangularNode<TreeNode>>("path")
-      .data(nodes, d => `${d.depth}|${d.data.name}`);
+      .data(nodes, nodeKey);
 
     paths.exit().remove();
 
@@ -205,7 +208,7 @@ export class Visual implements IVisual {
     // ---- Labels ----
     const labels = this.g
       .selectAll<SVGTextElement, d3.HierarchyRectangularNode<TreeNode>>("text")
-      .data(nodes, d => `${d.depth}|${d.data.name}`);
+      .data(nodes, nodeKey);
 
     labels.exit().remove();
 
