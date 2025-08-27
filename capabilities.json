@@ -9,18 +9,15 @@
   ],
   "dataViewMappings": [
     {
-      "categorical": {
-        "categories": {
+      "matrix": {
+        "rows": {
           "select": [
             { "for": { "in": "level1" } },
             { "for": { "in": "level2" } },
             { "for": { "in": "level3" } },
             { "for": { "in": "level4" } },
             { "for": { "in": "level5" } }
-          ],
-          "dataReductionAlgorithm": {
-            "top": { "count": 30000 }
-          }
+          ]
         }
       }
     }
