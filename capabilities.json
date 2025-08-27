@@ -18,12 +18,13 @@
             { "for": { "in": "level4" } },
             { "for": { "in": "level5" } }
           ],
-          "dataReductionAlgorithm": { "window": {} }
+          "dataReductionAlgorithm": {
+            "top": { "count": 30000 }
+          }
         }
       }
     }
   ],
-
   "objects": {
     "labels": {
       "displayName": "Labels",
