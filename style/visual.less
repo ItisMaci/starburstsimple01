@@ -1,14 +1,143 @@
-// Basic styling for the sunburst
+// Enhanced Sunburst Chart Styling - matching original design
+:root {
+  --ink: #0f172a;
+  --ink-2: #334155;
+  --paper: #ffffff;
+  --accent: #0ea5e9;
+}
+
 .sunburst-svg {
-  font-family: "Segoe UI", Arial, sans-serif;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  display: block;
+  height: auto;
+  width: 100%;
 }
 
-.sunburst-container .arc {
-  stroke: #fff;
-  stroke-width: 1px;
+.sunburst-container {
+  path {
+    stroke: #fff;
+    stroke-width: 1px;
+    cursor: pointer;
+    transition: opacity 0.2s ease;
+    
+    &:hover {
+      opacity: 0.8;
+    }
+  }
+  
+  text {
+    font-weight: 600;
+    font-size: 18px;
+    fill: var(--ink);
+    user-select: none;
+    pointer-events: none;
+  }
 }
 
-.sunburst-container .center-label {
+// Tooltip styling
+.tooltip {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0;
+  background: #111;
+  color: #fff;
   font-size: 12px;
-  fill: #444;
+  padding: 6px 8px;
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.2);
+  transform: translate(-50%, -120%);
+  z-index: 1000;
+  transition: opacity 0.2s ease;
+}
+
+// Legend styling
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-right: 10px;
+  
+  .swatch {
+    width: 40px;
+    height: 12px;
+    border-radius: 3px;
+  }
+}
+
+// Breadcrumb styling
+.breadcrumbs {
+  padding: 10px 16px 16px;
+  font-size: 13px;
+  color: var(--ink-2);
+  border-top: 1px solid #e2e8f0;
+  
+  a {
+    color: var(--accent);
+    text-decoration: none;
+    cursor: pointer;
+    
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+  
+  .sep {
+    opacity: 0.5;
+    padding: 0 6px;
+  }
+}
+
+// Center reset label
+.center-reset {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: #64748b;
+  pointer-events: none;
+  text-align: center;
+  line-height: 1.4;
+}
+
+// Panel and layout styling
+.sunburst-panel {
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 16px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+  overflow: hidden;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.sunburst-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  
+  h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    color: var(--ink);
+  }
+}
+
+.sunburst-vis {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 1;
+  background: #fff;
+  min-height: 400px;
 }

@@ -33,7 +33,48 @@
     "labels": {
       "displayName": "Labels",
       "properties": {
-        "fontSize": { "displayName": "Font size", "type": { "integer": true } }
+        "fontSize": { 
+          "displayName": "Font size", 
+          "type": { "integer": true },
+          "suppressFormatPainterCopy": true
+        },
+        "show": {
+          "displayName": "Show labels",
+          "type": { "bool": true }
+        }
+      }
+    },
+    "colors": {
+      "displayName": "Colors",
+      "properties": {
+        "colorScheme": {
+          "displayName": "Color scheme",
+          "type": {
+            "enumeration": [
+              { "value": "tableau10", "displayName": "Tableau 10" },
+              { "value": "category10", "displayName": "Category 10" },
+              { "value": "pastel1", "displayName": "Pastel 1" },
+              { "value": "set3", "displayName": "Set 3" }
+            ]
+          }
+        }
+      }
+    },
+    "interaction": {
+      "displayName": "Interaction",
+      "properties": {
+        "enableZoom": {
+          "displayName": "Enable zoom",
+          "type": { "bool": true }
+        },
+        "showBreadcrumbs": {
+          "displayName": "Show breadcrumbs",
+          "type": { "bool": true }
+        },
+        "showTooltips": {
+          "displayName": "Show tooltips",
+          "type": { "bool": true }
+        }
       }
     }
   }
