@@ -1,25 +1,34 @@
 {
   "privileges": [],
-    "dataRoles": [
-    { "name": "domains", "kind": "Grouping", "displayName": "Domains Table" },
-    { "name": "ebene2", "kind": "Grouping", "displayName": "Level 2 Table" },
-    { "name": "ebene3", "kind": "Grouping", "displayName": "Level 3 Table" },
-    { "name": "ebene4", "kind": "Grouping", "displayName": "Level 4 Table" }
-    ],
-    "dataViewMappings": [
+  "dataRoles": [
     {
-        "table": {
-        "rows": {
-            "select": [
-                { "for": { "in": "domains" }},
-                { "for": { "in": "ebene2" }},
-                { "for": { "in": "ebene3" }},
-                { "for": { "in": "ebene4" }}
-            ]
-        }
-        }
+      "name": "category",
+      "kind": "Grouping",
+      "displayName": "Hierarchy"
+    },
+    {
+      "name": "value",
+      "kind": "Measure",
+      "displayName": "Value"
     }
-    ],
+  ],
+  "dataViewMappings": [
+    {
+      "matrix": {
+        "rows": {
+          "for": { "in": "category" }
+        },
+        "values": {
+          "select": [
+            { "bind": { "to": "value" } }
+          ]
+        }
+      }
+    }
+  ],
+  "drilldown": {
+    "roles": ["category"]
+  },
   "objects": {
     "labels": {
       "displayName": "Labels",

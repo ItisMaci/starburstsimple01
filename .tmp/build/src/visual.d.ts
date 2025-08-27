@@ -1,40 +1,27 @@
-import "./../style/visual.less";
+/**
+ * Sunburst (starburst) partition visual for Power BI Visuals SDK (pbiviz 6.1)
+ * Uses D3 v7.9
+ */
 import powerbi from "powerbi-visuals-api";
+import IVisual = powerbi.extensibility.visual.IVisual;
 import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
 import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
-import IVisual = powerbi.extensibility.visual.IVisual;
 export declare class Visual implements IVisual {
     private host;
-    private container;
-    private header;
-    private legend;
-    private vis;
-    private tooltip;
-    private crumbs;
     private svg;
     private g;
-    private pathsG;
-    private labelsG;
-    private width;
-    private height;
-    private radius;
-    private root;
-    private color;
-    private arc;
-    private nodes;
-    private path;
-    private label;
     constructor(options: VisualConstructorOptions);
-    private rawTableToObjects;
-    private buildHierarchy;
     update(options: VisualUpdateOptions): void;
-    private getFill;
-    private labelVisible;
-    private labelTransform;
-    private safeAncestors;
-    private updateLegend;
-    private updateCrumbs;
-    private zoomTo;
-    private clear;
-    destroy(): void;
+    private formatValue;
+    private nodeKey;
+    private topAncestorName;
+    private pathLabel;
+    /**
+     * Convert Power BI matrix (rows) into a nested object suitable for d3.hierarchy.
+     *
+     * Notes:
+     * - We preserve intermediate levels even if a node has no further children ("keep layers").
+     * - Leaf node size: first numeric measure value if present; otherwise count (1).
+     */
+    private matrixToHierarchy;
 }
