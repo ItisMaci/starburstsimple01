@@ -25,449 +25,616 @@
 */
 
 // src/visual.ts
+// visual.ts
+// Power BI Custom Visual: Sunburst (D3)
+// ------------------------------------------------------------
+// This file implements a D3 sunburst adapted from the provided
+// script, packaged as a Power BI custom visual 'visual.ts'.
+// It renders static sample data (from the prompt) so you can
+// verify layout/interaction without a data binding yet.
+// ------------------------------------------------------------
+
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
+/* eslint-disable @typescript-eslint/ban-ts-comment */
+
 "use strict";
+
 import "./../style/visual.less";
 
-import powerbi from "powerbi-visuals-api";
-import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
-import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
-import IVisual = powerbi.extensibility.visual.IVisual;
-import DataView = powerbi.DataView;
-import IVisualHost = powerbi.extensibility.IVisualHost;
-
 import * as d3 from "d3";
-type Selection<T extends d3.BaseType> = d3.Selection<T, any, any, any>;
+import powerbi from "powerbi-visuals-api";
 
-interface HierarchyData {
+import IVisual = powerbi.extensibility.visual.IVisual;
+import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
+import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
+
+type Domain = { domain_id: number; domain_name: string };
+type Ebene2 = { level_id: number; level_name: string; parent_id: number };
+type Ebene3 = { level_id: number; level_name: string; parent_id: number };
+type Ebene4 = { level_id: number; level_name: string; parent_id: number };
+
+type Raw = {
+  domains: Domain[];
+  ebene2: Ebene2[];
+  ebene3: Ebene3[];
+  ebene4: Ebene4[];
+};
+
+type Depth = 1 | 2 | 3 | 4;
+type NodeMeta = { depth: Depth };
+
+type NodeData = {
   name: string;
-  children?: HierarchyData[];
   value?: number;
-  __meta?: { depth: number };
+  children?: NodeData[];
+  __meta?: NodeMeta;
+};
+
+type ArcDatum = { x0: number; x1: number; y0: number; y1: number };
+
+type SunburstNode = d3.HierarchyRectangularNode<NodeData> & {
+  current?: ArcDatum;
+  target?: ArcDatum;
+};
+
+// -----------------------------
+// 0) Sample Source Data (static)
+// -----------------------------
+const raw: Raw = {
+  domains: [
+    { domain_id: 1, domain_name: "Bauen und Wohnen" },
+    { domain_id: 2, domain_name: "Bevölkerung und Gesellschaft" },
+    { domain_id: 3, domain_name: "Bildung" },
+    { domain_id: 4, domain_name: "Politik" },
+    { domain_id: 5, domain_name: "Sicherheit und Ordnung" },
+    { domain_id: 6, domain_name: "Soziales" },
+    { domain_id: 7, domain_name: "Stadtraum" },
+    { domain_id: 8, domain_name: "Umwelt" },
+    { domain_id: 9, domain_name: "Verwaltung" },
+    { domain_id: 10, domain_name: "Wirtschaft und Arbeit" }
+  ],
+  ebene2: [
+    { level_id: 1, level_name: "Bauwerke", parent_id: 1 },
+    { level_id: 2, level_name: "Einwanderung und Staatsbürgerschaft", parent_id: 2 },
+    { level_id: 3, level_name: "Natürliche Person", parent_id: 2 },
+    { level_id: 4, level_name: "Staatentabelle", parent_id: 2 },
+    { level_id: 5, level_name: "Schulen der Stadt Wien", parent_id: 3 },
+    { level_id: 6, level_name: "WiBi", parent_id: 3 },
+    { level_id: 7, level_name: "Wahlen", parent_id: 4 },
+    { level_id: 8, level_name: "Verwaltungsstrafen", parent_id: 5 },
+    { level_id: 9, level_name: "Kinder- und Jugendhilfe", parent_id: 6 },
+    { level_id: 10, level_name: "Adressen", parent_id: 7 },
+    { level_id: 11, level_name: "Immobilienmanagement", parent_id: 7 },
+    { level_id: 12, level_name: "Immobilienverwaltung MA10", parent_id: 7 },
+    { level_id: 13, level_name: "Internet of Things (IoT)", parent_id: 7 },
+    { level_id: 14, level_name: "Inventar im öffentlichen Raum", parent_id: 7 },
+    { level_id: 15, level_name: "MA34", parent_id: 7 },
+    { level_id: 16, level_name: "Vermessung-Geobasis", parent_id: 7 },
+    { level_id: 17, level_name: "Öffentliche Beleuchtung und Verkehrslichtsignalanlagen", parent_id: 7 },
+    { level_id: 18, level_name: "Österreichisches Adressregister", parent_id: 7 },
+    { level_id: 19, level_name: "Abfallsammlung", parent_id: 8 },
+    { level_id: 20, level_name: "Energie", parent_id: 8 },
+    { level_id: 21, level_name: "Klimaschutz", parent_id: 8 },
+    { level_id: 22, level_name: "Bildung und Jugend", parent_id: 9 },
+    { level_id: 23, level_name: "Elektronische Aktenführung", parent_id: 9 },
+    { level_id: 24, level_name: "Finanzen", parent_id: 9 },
+    { level_id: 25, level_name: "Förderungen", parent_id: 9 },
+    { level_id: 26, level_name: "IKT Basis", parent_id: 9 },
+    { level_id: 27, level_name: "Organisation", parent_id: 9 },
+    { level_id: 28, level_name: "Personal", parent_id: 9 },
+    { level_id: 29, level_name: "Produkt- und Leistungsrechnung", parent_id: 9 },
+    { level_id: 30, level_name: "Wien Leuchtet", parent_id: 9 },
+    { level_id: 31, level_name: "Gewerberecht und gewerbliche Betriebsanlagenverfahren", parent_id: 10 },
+    { level_id: 32, level_name: "Unternehmensregister", parent_id: 10 }
+  ],
+  ebene3: [
+    { level_id: 1, level_name: "Anlieferungsdaten Gebäude", parent_id: 1 },
+    { level_id: 2, level_name: "Bauverfahren", parent_id: 1 },
+    { level_id: 3, level_name: "Bauwerke Bestand", parent_id: 1 },
+    { level_id: 4, level_name: "Bauwerke gemeinsame Definitionen", parent_id: 1 },
+    { level_id: 5, level_name: "Flächen und Mieten", parent_id: 1 },
+    { level_id: 6, level_name: "MA36", parent_id: 1 },
+    { level_id: 7, level_name: "MA37", parent_id: 1 },
+    { level_id: 8, level_name: "Staatsbürgerschaft", parent_id: 2 },
+    { level_id: 9, level_name: "Zentrales Melderegister", parent_id: 3 },
+    { level_id: 10, level_name: "Zentrales Personenstandsregister", parent_id: 3 },
+    { level_id: 11, level_name: "Betrieb Wiener Schulen", parent_id: 5 },
+    { level_id: 12, level_name: "Schulgebäude und -objekte", parent_id: 5 },
+    { level_id: 13, level_name: "Schulpersonalia", parent_id: 5 },
+    { level_id: 14, level_name: "Schüler*innen", parent_id: 5 },
+    { level_id: 15, level_name: "Vorhaben (Schulen)", parent_id: 5 },
+    { level_id: 16, level_name: "Parkraumüberwachung Außendienst", parent_id: 8 },
+    { level_id: 17, level_name: "VWST Aufgaben", parent_id: 8 },
+    { level_id: 18, level_name: "VWST Basis Daten Verlauf", parent_id: 8 },
+    { level_id: 19, level_name: "VWST Buchungscontainer", parent_id: 8 },
+    { level_id: 20, level_name: "VWST Forderungsbewegung", parent_id: 8 },
+    { level_id: 21, level_name: "(Test) Soziale Arbeit", parent_id: 9 },
+    { level_id: 22, level_name: "Genehmigung Kindertagesbetreuung", parent_id: 9 },
+    { level_id: 23, level_name: "Psychologischer Dienst und Inklusion", parent_id: 9 },
+    { level_id: 24, level_name: "Rechtsvertretung", parent_id: 9 },
+    { level_id: 25, level_name: "Soziale Arbeit", parent_id: 9 },
+    { level_id: 26, level_name: "Sozialpädagogik", parent_id: 9 },
+    { level_id: 27, level_name: "Aktive Liegenschaftsverwaltung", parent_id: 11 },
+    { level_id: 28, level_name: "Behördliche Vorgänge", parent_id: 11 },
+    { level_id: 29, level_name: "Erwerb und Veräußerung von Liegenschaften", parent_id: 11 },
+    { level_id: 30, level_name: "Grundbuchsaktivitäten", parent_id: 11 },
+    { level_id: 31, level_name: "Immobilienstrategie", parent_id: 11 },
+    { level_id: 32, level_name: "Kleingarten", parent_id: 11 },
+    { level_id: 33, level_name: "Unterstützungsleistungen", parent_id: 11 },
+    { level_id: 34, level_name: "Zentrale Evidenz", parent_id: 11 },
+    { level_id: 35, level_name: "Verkehrszeichen & Wegweiser", parent_id: 14 },
+    { level_id: 36, level_name: "Werbeträger", parent_id: 14 },
+    { level_id: 37, level_name: "Elektrotechnische Assets", parent_id: 17 },
+    { level_id: 38, level_name: "Mechanische Assets", parent_id: 17 },
+    { level_id: 39, level_name: "Verkehrslichtsignalanlagen", parent_id: 17 },
+    { level_id: 40, level_name: "Fahrzeugverwaltung", parent_id: 19 },
+    { level_id: 41, level_name: "Leitstand Altwarenverkauf", parent_id: 19 },
+    { level_id: 42, level_name: "Leitstand Mistplätze", parent_id: 19 },
+    { level_id: 43, level_name: "Energie-Geodaten", parent_id: 20 },
+    { level_id: 44, level_name: "Energiedatenmanagement", parent_id: 20 },
+    { level_id: 45, level_name: "Erzeugungsanlagen in Wien", parent_id: 20 },
+    { level_id: 46, level_name: "SECAP", parent_id: 21 },
+    { level_id: 47, level_name: "Wetter", parent_id: 21 },
+    { level_id: 48, level_name: "Förderungen Bildung und Jugend", parent_id: 22 },
+    { level_id: 49, level_name: "Organisatorische Einheiten", parent_id: 23 },
+    { level_id: 50, level_name: "Anlagenverwaltung", parent_id: 24 },
+    { level_id: 51, level_name: "Beteiligungsmanagement", parent_id: 24 },
+    { level_id: 52, level_name: "Darlehensverwaltung", parent_id: 24 },
+    { level_id: 53, level_name: "Haftungen", parent_id: 24 },
+    { level_id: 54, level_name: "Kassenverwaltung", parent_id: 24 },
+    { level_id: 55, level_name: "Leasing", parent_id: 24 },
+    { level_id: 56, level_name: "Marktfolge", parent_id: 24 },
+    { level_id: 57, level_name: "Weitere Ansatzbeziehungen", parent_id: 24 },
+    { level_id: 58, level_name: "Weitere Buchungskreisbeziehungen", parent_id: 24 },
+    { level_id: 59, level_name: "Weitere Gruppenbeziehungen", parent_id: 24 },
+    { level_id: 60, level_name: "Weitere Sachkontenbeziehungen", parent_id: 24 },
+    { level_id: 61, level_name: "Beteiligte Personen", parent_id: 25 },
+    { level_id: 62, level_name: "Fördersummen", parent_id: 25 },
+    { level_id: 63, level_name: "Geförderte Wohneinheiten MA 50", parent_id: 25 },
+    { level_id: 64, level_name: "Transparenzdatenbank", parent_id: 25 },
+    { level_id: 65, level_name: "Wohngeld", parent_id: 25 },
+    { level_id: 66, level_name: "Anforderungen", parent_id: 26 },
+    { level_id: 67, level_name: "Arbeitssammlung", parent_id: 26 },
+    { level_id: 68, level_name: "Berechtigungsvergabe EDWH", parent_id: 26 },
+    { level_id: 69, level_name: "Fachliche Metadaten", parent_id: 26 },
+    { level_id: 70, level_name: "Gewerbeinformationen", parent_id: 26 },
+    { level_id: 71, level_name: "Identity Management (IKTORG)", parent_id: 26 },
+    { level_id: 72, level_name: "MA01 Leistungsabrechnung", parent_id: 26 },
+    { level_id: 73, level_name: "MA01 interne Leistungen & Services", parent_id: 26 },
+    { level_id: 74, level_name: "Metrik Vault", parent_id: 26 },
+    { level_id: 75, level_name: "Nutzungs-Auswertungen", parent_id: 26 },
+    { level_id: 76, level_name: "Qualitätssicherung im EDWH", parent_id: 26 },
+    { level_id: 77, level_name: "Sag's Wien App", parent_id: 26 },
+    { level_id: 78, level_name: "Telefonabrechnung", parent_id: 26 },
+    { level_id: 79, level_name: "Vorhabens- und Projektabwicklung", parent_id: 26 },
+    { level_id: 80, level_name: "Personalaufwand", parent_id: 28 },
+    { level_id: 81, level_name: "Steuertabellen - Bruttobezugsliste", parent_id: 28 },
+    { level_id: 82, level_name: "E-Mobilität Standards", parent_id: 30 },
+    { level_id: 83, level_name: "Verkehrslichtsignalanlagen  (Verwaltung)", parent_id: 30 },
+    { level_id: 84, level_name: "Öffentliche Beleuchtung (Verwaltung)", parent_id: 30 },
+    { level_id: 85, level_name: "Gewerbeverfahren", parent_id: 31 }
+  ],
+  ebene4: [
+    { level_id: 1, level_name: "Weitere Schülerattribute", parent_id: 14 },
+    { level_id: 2, level_name: "Vermögensverwaltung", parent_id: 24 },
+    { level_id: 3, level_name: "0 - Konfiguration", parent_id: 62 },
+    { level_id: 4, level_name: "1 - Standarddienststellen", parent_id: 62 },
+    { level_id: 5, level_name: "2 - MA 50 - Wohnbauförderungen", parent_id: 62 },
+    { level_id: 6, level_name: "3 - MA 11 - Essenszuschüsse", parent_id: 62 },
+    { level_id: 7, level_name: "80 - Förderfallstatus", parent_id: 62 },
+    { level_id: 8, level_name: "81 - Wirkungsorientierte Kennzahlen", parent_id: 62 },
+    { level_id: 9, level_name: "99 - Dimensionen", parent_id: 62 },
+    { level_id: 10, level_name: "Auszahlungsabwicklung (Wohngeld)", parent_id: 65 },
+    { level_id: 11, level_name: "Beteiligte Personen (Wohngeld)", parent_id: 65 },
+    { level_id: 12, level_name: "Beschaffungsaufträge & Bestellanforderungen", parent_id: 66 },
+    { level_id: 13, level_name: "Katalogsysteme", parent_id: 66 },
+    { level_id: 14, level_name: "Vendormanagement", parent_id: 66 },
+    { level_id: 15, level_name: "Vorhaben", parent_id: 66 },
+    { level_id: 16, level_name: "Dienstpostensteuerung MA 01", parent_id: 67 },
+    { level_id: 17, level_name: "Allgemeine Datenobjekte", parent_id: 69 },
+    { level_id: 18, level_name: "DX Organisation", parent_id: 69 },
+    { level_id: 19, level_name: "Datennutzungskatalog", parent_id: 69 },
+    { level_id: 20, level_name: "Fachdatenmodell", parent_id: 69 },
+    { level_id: 21, level_name: "Kennzahlenkatalog", parent_id: 69 },
+    { level_id: 22, level_name: "Referenzdatenmodell", parent_id: 69 },
+    { level_id: 23, level_name: "Business Servicekatalog", parent_id: 73 },
+    { level_id: 24, level_name: "Finanzmanagement MA01", parent_id: 73 },
+    { level_id: 25, level_name: "Incidents", parent_id: 73 },
+    { level_id: 26, level_name: "Interne Revision", parent_id: 73 },
+    { level_id: 27, level_name: "Wahlkartenmonitoring", parent_id: 73 },
+    { level_id: 28, level_name: "E-Control Ladestellenverzeichnis", parent_id: 82 },
+    { level_id: 29, level_name: "EV Charging Station", parent_id: 82 },
+    { level_id: 30, level_name: "Open Data Hub", parent_id: 82 },
+    { level_id: 31, level_name: "WIEN ENERGIE E-LADESTELLE OGD", parent_id: 82 },
+    { level_id: 32, level_name: "Budgetär", parent_id: 84 },
+    { level_id: 33, level_name: "EAZV", parent_id: 84 },
+    { level_id: 34, level_name: "Einbautenabfrage MA 33", parent_id: 84 },
+    { level_id: 35, level_name: "Mitbenutzung MA 33", parent_id: 84 },
+    { level_id: 36, level_name: "Protokoll (Wien leuchtet)", parent_id: 84 },
+    { level_id: 37, level_name: "Auslaufende Gewerbefunktionen", parent_id: 85 },
+    { level_id: 38, level_name: "Ausländische Gewerbeinhaber*innen", parent_id: 85 },
+    { level_id: 39, level_name: "Zentrale Referenzen (Gewerbeverfahren)", parent_id: 85 }
+  ]
+};
+
+// -----------------------------
+// 1) Build hierarchy
+// -----------------------------
+function buildHierarchy(rawData: Raw): NodeData {
+  const e4ByParent = new Map<number, Ebene4[]>();
+  for (const n of rawData.ebene4) {
+    if (!e4ByParent.has(n.parent_id)) e4ByParent.set(n.parent_id, []);
+    e4ByParent.get(n.parent_id)!.push(n);
+  }
+
+  const e3ByParent = new Map<number, Ebene3[]>();
+  for (const n of rawData.ebene3) {
+    if (!e3ByParent.has(n.parent_id)) e3ByParent.set(n.parent_id, []);
+    e3ByParent.get(n.parent_id)!.push(n);
+  }
+
+  const e2ByDomain = new Map<number, Ebene2[]>();
+  for (const n of rawData.ebene2) {
+    if (!e2ByDomain.has(n.parent_id)) e2ByDomain.set(n.parent_id, []);
+    e2ByDomain.get(n.parent_id)!.push(n);
+  }
+
+  const domains: NodeData[] = rawData.domains.map((d): NodeData => {
+    const e2s = e2ByDomain.get(d.domain_id) ?? [];
+    const childrenLvl2: NodeData[] = e2s.map((l2): NodeData => {
+      const e3s = e3ByParent.get(l2.level_id) ?? [];
+      const childrenLvl3: NodeData[] = e3s.map((l3): NodeData => {
+        const e4s = e4ByParent.get(l3.level_id) ?? [];
+        const childrenLvl4: NodeData[] = e4s.map((l4): NodeData => ({
+          name: l4.level_name,
+          value: 1,
+          __meta: { depth: 4 }
+        }));
+        if (childrenLvl4.length === 0) {
+          return { name: l3.level_name, value: 1, __meta: { depth: 3 } };
+        }
+        return { name: l3.level_name, children: childrenLvl4, __meta: { depth: 3 } };
+      });
+      if (childrenLvl3.length === 0) {
+        return { name: l2.level_name, value: 1, __meta: { depth: 2 } };
+      }
+      return { name: l2.level_name, children: childrenLvl3, __meta: { depth: 2 } };
+    });
+
+    if (childrenLvl2.length === 0) {
+      return { name: d.domain_name, value: 1, __meta: { depth: 1 } };
+    }
+    return { name: d.domain_name, children: childrenLvl2, __meta: { depth: 1 } };
+  });
+
+  return { name: "Wien", children: domains };
 }
 
+// -------------------------------------------
+// 2) Visual class (rendering & interactions)
+// -------------------------------------------
 export class Visual implements IVisual {
-  private host: IVisualHost;
+  private rootEl: HTMLElement;
+  private visEl: HTMLElement;
+  private tooltipEl: HTMLElement;
+  private crumbsEl: HTMLElement;
+  private legendEl: HTMLElement;
 
-  private container: Selection<HTMLDivElement>;
-  private header: Selection<HTMLDivElement>;
-  private legend: Selection<HTMLDivElement>;
-  private vis: Selection<HTMLDivElement>;
-  private tooltip: Selection<HTMLDivElement>;
-  private crumbs: Selection<HTMLDivElement>;
+  // D3 handles
+  private svg!: d3.Selection<SVGSVGElement, unknown, null, undefined>;
+  private g!: d3.Selection<SVGGElement, unknown, null, undefined>;
+  private path!: d3.Selection<SVGPathElement, SunburstNode, SVGGElement, unknown>;
+  private label!: d3.Selection<SVGTextElement, SunburstNode, SVGGElement, unknown>;
 
-  private svg: Selection<SVGSVGElement>;
-  private g: Selection<SVGGElement>;
-  private pathsG: Selection<SVGGElement>;
-  private labelsG: Selection<SVGGElement>;
-
-  private width = 0;
-  private height = 0;
-  private radius = 0;
-
-  private root: d3.HierarchyRectangularNode<HierarchyData> | null = null;
-  private color: d3.ScaleOrdinal<string, string, never> | null = null;
-  private arc: d3.Arc<any, any> | null = null;
-
-  private nodes: d3.HierarchyRectangularNode<HierarchyData>[] = [];
-  private path!: Selection<SVGPathElement>;
-  private label!: Selection<SVGTextElement>;
+  // Layout state
+  private layoutRoot!: SunburstNode;
+  private nodesList!: SunburstNode[];
 
   constructor(options: VisualConstructorOptions) {
-    this.host = options.host;
+    this.rootEl = options.element;
 
-    this.container = d3.select(options.element)
-      .append("div")
-      .style("position", "relative")
-      .style("width", "100%")
-      .style("height", "100%")
-      .style("font-family", "system-ui, -apple-system, Segoe UI, Roboto, sans-serif")
-      .style("background", "#fff")
-      .style("color", "#0f172a");
+    // Container structure
+    this.rootEl.classList.add("sunburst-root");
 
-    this.header = this.container.append("div")
-      .style("padding", "8px 12px")
-      .style("display", "flex")
-      .style("align-items", "center")
-      .style("gap", "8px")
-      .style("border-bottom", "1px solid #e5e7eb");
+    // Controls row (crumbs + legend)
+    const controls = document.createElement("div");
+    controls.className = "sb-controls";
+    this.rootEl.appendChild(controls);
 
-    this.header.append("div")
-      .style("font-weight", "800")
-      .style("font-size", "14px")
-      .text("Sunburst");
+    this.crumbsEl = document.createElement("div");
+    this.crumbsEl.className = "sb-crumbs";
+    controls.appendChild(this.crumbsEl);
 
-    this.legend = this.header.append("div")
-      .style("display", "flex")
-      .style("flex-wrap", "wrap")
-      .style("gap", "8px")
-      .style("margin-left", "auto");
+    this.legendEl = document.createElement("div");
+    this.legendEl.className = "sb-legend";
+    controls.appendChild(this.legendEl);
 
-    this.vis = this.container.append("div")
-      .style("position", "absolute")
-      .style("inset", "42px 0 32px 0")
-      .style("display", "grid")
-      .style("place-items", "center");
+    // Visualization container
+    this.visEl = document.createElement("div");
+    this.visEl.className = "sb-vis";
+    this.visEl.setAttribute("role", "img");
+    this.visEl.setAttribute("aria-label", "Sunburst partition - Stadt Wien");
+    this.rootEl.appendChild(this.visEl);
 
-    this.svg = this.vis.append("svg")
-      .attr("role", "img")
-      .attr("aria-label", "Sunburst partition visualization")
-      .style("display", "block")
-      .style("width", "100%")
-      .style("height", "100%");
+    // Tooltip
+    this.tooltipEl = document.createElement("div");
+    this.tooltipEl.className = "sb-tooltip";
+    this.tooltipEl.style.position = "absolute";
+    this.tooltipEl.style.pointerEvents = "none";
+    this.tooltipEl.style.opacity = "0";
+    this.rootEl.appendChild(this.tooltipEl);
+
+    // Minimal inline styles (also see visual.less)
+    const style = document.createElement("style");
+    style.textContent = `
+      .sunburst-root { position: relative; font-family: "Segoe UI", system-ui, -apple-system, sans-serif; }
+      .sb-controls { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:8px; flex-wrap:wrap; }
+      .sb-crumbs { font-size:12px; user-select:none; }
+      .sb-crumbs .sep { margin: 0 6px; color:#64748b; }
+      .sb-crumbs a { text-decoration:none; color:#2563eb; }
+      .sb-legend { display:flex; gap:12px; flex-wrap:wrap; font-size:12px; }
+      .sb-legend .key { display:flex; align-items:center; gap:6px; }
+      .sb-legend .swatch { display:inline-block; width:12px; height:12px; border-radius:2px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
+      .sb-vis { width:100%; height:100%; position:relative; }
+      .sb-tooltip { background:#111827; color:#f9fafb; padding:6px 8px; border-radius:6px; font-size:12px; box-shadow:0 2px 8px rgba(0,0,0,.25); }
+      svg text { paint-order: stroke; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; }
+    `;
+    this.rootEl.appendChild(style);
+
+    // Init once
+    this.initChart();
+  }
+
+  private initChart(): void {
+    // Create svg scaffolding once; sizes are set in update()
+    this.svg = d3
+      .select(this.visEl)
+      .append("svg")
+      .attr("role", "img");
 
     this.g = this.svg.append("g");
-    this.pathsG = this.g.append("g");
-    this.labelsG = this.g.append("g").attr("pointer-events", "none").attr("text-anchor", "middle");
-
-    this.tooltip = this.vis.append("div")
-      .style("position", "absolute")
-      .style("pointer-events", "none")
-      .style("opacity", "0")
-      .style("transform", "translate(-50%, -120%)")
-      .style("background", "#111")
-      .style("color", "#fff")
-      .style("font-size", "12px")
-      .style("padding", "6px 8px")
-      .style("border-radius", "6px")
-      .style("box-shadow", "0 6px 18px rgba(0,0,0,.2)");
-
-    this.vis.append("div")
-      .style("position", "absolute")
-      .style("width", "120px")
-      .style("height", "120px")
-      .style("border-radius", "999px")
-      .style("display", "grid")
-      .style("place-items", "center")
-      .style("font-size", "12px")
-      .style("color", "#64748b")
-      .style("pointer-events", "none")
-      .style("text-align", "center")
-      .style("white-space", "pre-line")
-      .text("Click to zoom\nBack with breadcrumbs");
-
-    this.crumbs = this.container.append("div")
-      .style("position", "absolute")
-      .style("left", "0")
-      .style("right", "0")
-      .style("bottom", "0")
-      .style("padding", "8px 12px")
-      .style("font-size", "12px")
-      .style("color", "#64748b")
-      .style("border-top", "1px solid #e5e7eb");
   }
 
   public update(options: VisualUpdateOptions): void {
-    const dv: DataView | undefined = options.dataViews?.[0];
-    const catCols = dv?.categorical?.categories ?? [];
+    const width = Math.max(0, options.viewport.width);
+    const height = Math.max(0, options.viewport.height);
 
-    if (!catCols.length || !catCols[0].values.length) {
-      this.clear();
-      return;
-    }
+    // Clear SVG dimensions and set new viewbox/size
+    const W = width;
+    const H = height;
+    const R = Math.max(10, Math.min(W, H) / 2 - 6);
 
-    const visRect = (this.vis.node() as HTMLDivElement).getBoundingClientRect();
-    this.width = Math.max(0, visRect.width);
-    this.height = Math.max(0, visRect.height);
-    this.radius = Math.max(0, Math.min(this.width, this.height) / 2 - 10);
+    this.svg.attr("width", W).attr("height", H).attr("viewBox", [-W / 2, -H / 2, W, H].join(" "));
 
-    this.svg
-      .attr("viewBox", `${-this.width / 2} ${-this.height / 2} ${this.width} ${this.height}`)
-      .attr("width", this.width)
-      .attr("height", this.height);
+    // Build data (static for now)
+    const data: NodeData = buildHierarchy(raw);
 
-    const data = this.buildHierarchyFromPowerBI(catCols);
+    // Build hierarchy & partition
+    const root = d3
+      .hierarchy<NodeData>(data)
+      .sum((d) => d.value ?? 0)
+      .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
 
-    const hierarchy = d3.hierarchy<HierarchyData>(data)
-      .sum(d => (d.children && d.children.length) ? 0 : (d.value || 0))
-      .sort((a, b) => (b.value || 0) - (a.value || 0));
+    const partition = d3.partition<NodeData>().size([2 * Math.PI, R]);
 
-    const partition = d3.partition<HierarchyData>().size([2 * Math.PI, this.radius]);
-    const rootPartitioned = partition(hierarchy);
-    this.root = rootPartitioned;
+    const layoutRoot = partition(root) as SunburstNode;
+    const nodesList = layoutRoot.descendants().filter((d) => d.depth > 0) as SunburstNode[];
 
-    // init tween state
-    this.root.each(d => (d as any).current = { x0: d.x0, x1: d.x1, y0: d.y0, y1: d.y1 });
+    this.layoutRoot = layoutRoot;
+    this.nodesList = nodesList;
 
-    // stable palette by top-level names
-    if (!this.color) this.color = d3.scaleOrdinal<string, string>().range(d3.schemeTableau10);
-    const topNames = (this.root.children ?? []).map(d => d.data.name);
-    (this.color as any).domain(topNames);
+    // Color by top-level ancestor
+    const color = d3.scaleOrdinal<string, string>(d3.schemeTableau10);
 
-    // compute per-node colors (parent→child lightening)
-    this.computeNodeColors();
+    const topAncestor = (d: SunburstNode): SunburstNode => {
+      if (d.depth === 1) return d;
+      const found = d.ancestors().find((a) => a.depth === 1) as SunburstNode | undefined;
+      return found ?? d;
+    };
 
-    this.arc = d3.arc<any>()
-      .startAngle((d: any) => d.x0)
-      .endAngle((d: any) => d.x1)
-      .padAngle((d: any) => Math.min(((d.x1 - d.x0) / 2), 0.003))
-      .padRadius(this.radius)
-      .innerRadius((d: any) => d.y0)
-      .outerRadius((d: any) => Math.max(d.y0, d.y1 - 1));
+    const getFill = (d: SunburstNode): string => {
+      const base = color(topAncestor(d).data.name);
+      const maxDepth = layoutRoot.height; // excluding root
+      const t = Math.max(0, Math.min(1, (d.depth - 1) / Math.max(maxDepth - 1, 1)));
+      return d3.interpolateLab(base, "#f8fafc")(t * 0.85);
+    };
 
-    this.nodes = this.root.descendants().filter(d => d.depth > 0);
+    // Arc generator uses the current/target coords during transitions
+    const arc = d3
+      .arc<ArcDatum>()
+      .startAngle((d) => d.x0)
+      .endAngle((d) => d.x1)
+      .padAngle((d) => Math.min((d.x1 - d.x0) / 2, 0.003))
+      .padRadius(R)
+      .innerRadius((d) => d.y0)
+      .outerRadius((d) => Math.max(d.y0, d.y1 - 1));
 
-    // full-path key for stability (and breadcrumbs)
-    const pathKey = (n: d3.HierarchyRectangularNode<HierarchyData>) =>
-      n.ancestors().map(a => a.data.name).reverse().join("/");
-
-    // PATHS
-    this.path = this.pathsG.selectAll<SVGPathElement, any>("path")
-      .data(this.nodes, pathKey as any)
+    // BIND paths
+    const that = this;
+    this.path = this.g
+      .selectAll<SVGPathElement, SunburstNode>("path")
+      .data(nodesList, (d: any) => d.data.name + "|" + d.depth)
       .join(
-        enter => enter.append("path")
-          .attr("fill", (d: any) => this.getFill(d))
-          .attr("stroke", "#fff")
-          .attr("stroke-width", 1)
-          .style("cursor", "pointer")
-          .attr("d", (d: any) => this.arc!((d as any).current))
-          .on("click", (_event, d) => this.zoomTo(d))
-          .on("mousemove", (event: MouseEvent, d) => {
-            const seq = this.safeAncestors(d).map(n => n.data.name).join(" › ");
-            this.tooltip.style("opacity", "0.96");
-            this.tooltip.text(`${seq} (Elements: ${Math.round(d.value || 0)})`);
-            const r = (this.vis.node() as HTMLDivElement).getBoundingClientRect();
-            this.tooltip.style("left", (event.clientX - r.left) + "px");
-            this.tooltip.style("top", (event.clientY - r.top) + "px");
-          })
-          .on("mouseleave", () => this.tooltip.style("opacity", "0")),
-        update => update
-          .attr("fill", (d: any) => this.getFill(d))
-          .attr("d", (d: any) => this.arc!((d as any).current)),
-        exit => exit.remove()
+        (enter) =>
+          enter
+            .append("path")
+            .attr("fill", (d) => getFill(d))
+            .attr("d", (d) => arc((d as any) as ArcDatum)!)
+            .attr("stroke", "#fff")
+            .attr("stroke-width", 1)
+            .style("cursor", "pointer")
+            .on("click", function (_event: MouseEvent, d: SunburstNode) {
+              that.zoomTo(d, arc);
+            })
+            .on("mousemove", (event: MouseEvent, d: SunburstNode) => {
+              const seq = this.safeAncestors(d).map((n) => n.data.name).join(" › ");
+              this.tooltipEl.style.opacity = "0.96";
+              this.tooltipEl.textContent = `${seq} (Elemente: ${Math.round(d.value ?? 0)})`;
+              const rect = this.rootEl.getBoundingClientRect();
+              const x = event.clientX - rect.left;
+              const y = event.clientY - rect.top;
+              this.tooltipEl.style.left = `${x + 8}px`;
+              this.tooltipEl.style.top = `${y + 8}px`;
+            })
+            .on("mouseleave", () => {
+              this.tooltipEl.style.opacity = "0";
+            }),
+        (update) =>
+          update
+            .attr("fill", (d) => getFill(d))
+            .attr("d", (d) => arc((d as any) as ArcDatum)!),
+        (exit) => exit.remove()
       );
 
     // LABELS
-    this.label = this.labelsG.selectAll<SVGTextElement, any>("text")
-      .data(this.nodes, pathKey as any)
+    this.label = this.g
+      .selectAll<SVGTextElement, SunburstNode>("text")
+      .data(nodesList, (d: any) => d.data.name + "|" + d.depth)
       .join(
-        enter => enter.append("text")
-          .attr("dy", "0.32em")
-          .attr("fill", "#0f172a")
-          .attr("font-size", 18)
-          .attr("font-weight", 600)
-          .style("user-select", "none")
-          .style("visibility", (d: any) => this.labelVisible((d as any).current) ? "visible" : "hidden")
-          .attr("transform", (d: any) => this.labelTransform((d as any).current))
-          .text(d => {
-            const name = d.data.name;
-            return name.length > 8 ? name.slice(0, 8) + "..." : name;
-          }),
-        update => update
-          .style("visibility", (d: any) => this.labelVisible((d as any).current) ? "visible" : "hidden")
-          .attr("transform", (d: any) => this.labelTransform((d as any).current))
-          .text(d => {
-            const name = d.data.name;
-            return name.length > 8 ? name.slice(0, 8) + "..." : name;
-          }),
-        exit => exit.remove()
+        (enter) =>
+          enter
+            .append("text")
+            .attr("dy", "0.32em")
+            .attr("fill", "#0f172a")
+            .attr("font-size", 14)
+            .attr("font-weight", 600 as any)
+            .attr("text-anchor", "middle")
+            .style("user-select", "none")
+            .style("visibility", (d) => (this.labelVisible((d as any) as ArcDatum) ? "visible" : "hidden"))
+            .attr("transform", (d) => this.labelTransform((d as any) as ArcDatum))
+            .text((d) => {
+              const name = d.data.name;
+              return name.length > 12 ? name.slice(0, 12) + "..." : name;
+            }),
+        (update) =>
+          update
+            .style("visibility", (d) => (this.labelVisible((d as any) as ArcDatum) ? "visible" : "hidden"))
+            .attr("transform", (d) => this.labelTransform((d as any) as ArcDatum))
+            .text((d) => {
+              const name = d.data.name;
+              return name.length > 12 ? name.slice(0, 12) + "..." : name;
+            }),
+        (exit) => exit.remove()
       );
 
-    this.updateLegend();
-    this.updateCrumbs(this.root);
+    // Legend + crumbs
+    this.updateLegend(color);
+    this.updateCrumbs(layoutRoot, arc);
+
+    // Initial "zoom" to root (no-op but sets current targets)
+    this.zoomTo(layoutRoot, arc, 0);
   }
 
-  // ----------------- Helpers -----------------
+  // ------------- Helpers -------------
 
-  private buildHierarchyFromPowerBI(catCols: powerbi.DataViewCategoryColumn[]): HierarchyData {
-    type NodeExt = HierarchyData & { _childMap?: Map<string, NodeExt> };
-    const root: NodeExt = { name: "Wien", children: [], _childMap: new Map() };
-
-    const rowCount = Math.max(...catCols.map(c => c.values.length));
-
-    const getVal = (col: powerbi.DataViewCategoryColumn, r: number) =>
-      r < col.values.length ? col.values[r] : null;
-
-    const norm = (v: any): string | null => {
-      if (v == null) return null;
-      const s = String(v).trim();
-      if (!s) return null;
-      const lo = s.toLowerCase();
-      return (lo === "null" || lo === "(blank)" || lo === "(empty)") ? null : s;
-    };
-
-    for (let r = 0; r < rowCount; r++) {
-      const path: string[] = [];
-      for (let l = 0; l < catCols.length; l++) {
-        const raw = norm(getVal(catCols[l], r));
-        if (!raw) break; // stop at first missing level for this row
-        path.push(raw);
-      }
-      if (!path.length) continue;
-
-      // walk/build
-      let current = root;
-      for (let i = 0; i < path.length; i++) {
-        const name = path[i];
-        current._childMap = current._childMap || new Map();
-        current.children = current.children || [];
-
-        if (!current._childMap.has(name)) {
-          const child: NodeExt = {
-            name,
-            children: [],
-            _childMap: new Map(),
-            __meta: { depth: i + 1 }
-          };
-          current._childMap.set(name, child);
-          current.children.push(child);
-        }
-        current = current._childMap.get(name)!;
-      }
-      // count leaf
-      current.value = (current.value || 0) + 1;
-    }
-
-    // strip helper maps
-    const strip = (n: NodeExt) => {
-      delete n._childMap;
-      (n.children ?? []).forEach(strip as any);
-    };
-    strip(root);
-
-    return root;
+  private labelVisible(d: ArcDatum): boolean {
+    const a = d.x1 - d.x0;
+    const r = d.y1 - d.y0;
+    return a > 0.03 && r > 12; // angular and radial room
   }
 
-  private computeNodeColors() {
-    if (!this.root || !this.color) return;
-    const baseBg = "#f8fafc";
-    const top = this.root.children ?? [];
-    for (const n of top) (n as any)._fill = this.color!(n.data.name);
-
-    const q: any[] = [...top];
-    while (q.length) {
-      const p = q.shift();
-      const kids = p.children ?? [];
-      if (kids.length) {
-        const t = 0.18; // how much to lighten per generation
-        for (const c of kids) {
-          const parentFill = (p as any)._fill as string;
-          (c as any)._fill = d3.interpolateLab(parentFill, baseBg)(t);
-          q.push(c);
-        }
-      }
-    }
-  }
-
-  private getFill(d: d3.HierarchyRectangularNode<HierarchyData>) {
-    return (d as any)._fill || "#ccc";
-  }
-
-  private zoomTo(p: d3.HierarchyRectangularNode<HierarchyData> | null) {
-    if (!p || !this.root || !this.arc) return;
-
-    this.tooltip.style("opacity", "0");
-    this.updateCrumbs(p);
-
-    this.root.each((d: any) => d.target = {
-      x0: Math.max(0, Math.min(1, (d.x0 - p.x0) / (p.x1 - p.x0))) * 2 * Math.PI,
-      x1: Math.max(0, Math.min(1, (d.x1 - p.x0) / (p.x1 - p.x0))) * 2 * Math.PI,
-      y0: Math.max(0, d.y0 - p.y0),
-      y1: Math.max(0, d.y1 - p.y0)
-    });
-
-    const t = this.g.transition().duration(650);
-
-    this.path.transition(t as any)
-      .tween("data", function (d: any) {
-        const i = d3.interpolate(d.current, d.target);
-        return (tt: number) => (d.current = i(tt));
-      })
-      .attrTween("d", (d: any) => () => this.arc!(d.current));
-
-    this.label
-      .transition(t as any)
-      .style("visibility", (d: any) => this.labelVisible(d.target) ? "visible" : "hidden")
-      .attrTween("transform", (d: any) => () => this.labelTransform(d.current));
-  }
-
-  private labelVisible(d: any) {
-    const a = (d.x1 - d.x0);
-    const r = (d.y1 - d.y0);
-    return (a > 0.03) && (r > 12);
-  }
-
-  private labelTransform(d: any) {
-    const x = (d.x0 + d.x1) / 2 * 180 / Math.PI;
+  private labelTransform(d: ArcDatum): string {
+    const x = ((d.x0 + d.x1) / 2) * (180 / Math.PI); // degrees
     const y = (d.y0 + d.y1) / 2;
     return `rotate(${x - 90}) translate(${y},0) rotate(${x < 180 ? 0 : 180})`;
   }
 
-  private safeAncestors(n: d3.HierarchyRectangularNode<HierarchyData>) {
-    if (n && typeof n.ancestors === "function") return n.ancestors().reverse();
-    return this.root ? [this.root] : [];
+  private safeAncestors(n: SunburstNode | null | undefined): SunburstNode[] {
+    if (n && typeof (n as any).ancestors === "function") {
+      return (n.ancestors() as SunburstNode[]).reverse();
+    }
+    return [this.layoutRoot];
   }
 
-  private updateLegend() {
-    if (!this.root || !this.color) return;
-    const topLevel = this.root.children || [];
-
-    const items = this.legend
-      .selectAll<HTMLDivElement, d3.HierarchyRectangularNode<HierarchyData>>("div.key")
-      .data(topLevel, (d: any) => d.data.name);
-
-    items.exit().remove();
-
-    const itemsEnter = items.enter()
-      .append("div")
+  private updateLegend(color: d3.ScaleOrdinal<string, string>): void {
+    const topLevel = (this.layoutRoot.children ?? []) as SunburstNode[];
+    const legendSel = d3.select(this.legendEl);
+    legendSel.selectAll("*").remove();
+    legendSel
+      .selectAll<HTMLDivElement, SunburstNode>("div.key")
+      .data(topLevel, (d: any) => d.data.name)
+      .join("div")
       .attr("class", "key")
-      .style("display", "inline-flex")
-      .style("align-items", "center")
-      .style("gap", "6px")
-      .style("font-size", "12px")
-      .style("color", "#64748b");
-
-    itemsEnter.append("span")
-      .attr("class", "swatch")
-      .style("display", "inline-block")
-      .style("width", "40px")
-      .style("height", "12px")
-      .style("border-radius", "3px");
-
-    itemsEnter.append("span").attr("class", "label");
-
-    const merged = itemsEnter.merge(items);
-
-    merged.select<HTMLSpanElement>("span.swatch")
-      .style("background", (d: any) => this.color!(d.data.name));
-
-    merged.select<HTMLSpanElement>("span.label")
-      .text((d: any) => d.data.name);
+      .html((d) => {
+        const swatch = `<span class="swatch" style="background:${color(d.data.name)}"></span>`;
+        return `${swatch}${d.data.name}`;
+      });
   }
 
-  private updateCrumbs(n: d3.HierarchyRectangularNode<HierarchyData>) {
-    if (!this.root) return;
-    const ancestors = this.safeAncestors(n);
+  private updateCrumbs(focus: SunburstNode, arc: d3.Arc<any, ArcDatum>): void {
+    const seq = this.safeAncestors(focus).map((x) => x.data.name);
+    this.crumbsEl.innerHTML = seq
+      .map((name, i) => (i === seq.length - 1 ? `<strong>${name}</strong>` : `<a href="#" data-depth="${i}">${name}</a>`))
+      .join('<span class="sep">›</span>');
 
-    const keyOf = (node: d3.HierarchyRectangularNode<HierarchyData>) =>
-      node.ancestors().map(a => a.data.name).reverse().join("/");
-
-    const html = ancestors.map((node, i) => {
-      const name = node.data.name;
-      if (i === ancestors.length - 1) return `<strong>${name}</strong>`;
-      return `<a href="#" data-key="${keyOf(node)}" style="color:#0ea5e9;text-decoration:none;">${name}</a>`;
-    }).join(`<span style="opacity:.5;padding:0 6px;">›</span>`);
-
-    this.crumbs.html(html);
-
-    this.crumbs.selectAll<HTMLAnchorElement, any>("a").on("click", (event) => {
-      event.preventDefault();
-      const a = event.currentTarget as HTMLAnchorElement;
-      const key = a.getAttribute("data-key")!;
-      const target = this.nodes.find(nn => keyOf(nn) === key) || this.root!;
-      this.zoomTo(target);
+    // make earlier crumbs clickable to jump back
+    this.crumbsEl.querySelectorAll<HTMLAnchorElement>("a").forEach((aEl) => {
+      aEl.addEventListener(
+        "click",
+        (e) => {
+          e.preventDefault();
+          const depth = Number(aEl.getAttribute("data-depth"));
+          const label = aEl.textContent ?? "";
+          // root is depth 0 (not in nodes), other depths match nodes
+          const target =
+            depth === 0
+              ? this.layoutRoot
+              : this.nodesList.find((nn) => nn.depth === depth && nn.data.name === label) ?? this.layoutRoot;
+          this.zoomTo(target, arc);
+        },
+        { once: true }
+      );
     });
   }
 
-  private clear() {
-    this.pathsG.selectAll("*").remove();
-    this.labelsG.selectAll("*").remove();
-    this.legend.html("");
-    this.crumbs.html("");
-    this.tooltip.style("opacity", "0");
-    this.root = null;
-  }
+  private zoomTo(p: SunburstNode, arc: d3.Arc<any, ArcDatum>, duration: number = 650): void {
+    if (!p) return;
 
-  public destroy(): void {
-    // No-op
+    // Hide tooltip
+    this.tooltipEl.style.opacity = "0";
+
+    // Update crumbs
+    this.updateCrumbs(p, arc);
+
+    // Compute target positions for all nodes
+    this.layoutRoot.each((d: SunburstNode) => {
+      d.target = {
+        x0: Math.max(0, Math.min(1, (d.x0 - p.x0) / (p.x1 - p.x0))) * 2 * Math.PI,
+        x1: Math.max(0, Math.min(1, (d.x1 - p.x0) / (p.x1 - p.x0))) * 2 * Math.PI,
+        y0: Math.max(0, d.y0 - p.y0),
+        y1: Math.max(0, d.y1 - p.y0)
+      };
+    });
+
+    const t = this.g.transition().duration(duration);
+
+    // Transition paths
+    this.path
+      // @ts-ignore
+      .transition(t)
+      .tween("data", (d: SunburstNode) => {
+        const i = d3.interpolate<ArcDatum>(
+          d.current ?? { x0: d.x0, x1: d.x1, y0: d.y0, y1: d.y1 },
+          d.target!
+        );
+        return (tt: number) => {
+          d.current = i(tt);
+        };
+      })
+      .attrTween("d", (d: SunburstNode) => () => arc(d.current!)!);
+
+    // Show/hide labels based on final position; animate transforms
+    this.label
+      .filter((d: SunburstNode) => !!d.target && this.labelVisible(d.target))
+      // @ts-ignore
+      .transition(t)
+      .style("visibility", "visible")
+      .attrTween("transform", (d: SunburstNode) => () => this.labelTransform(d.current!));
+
+    this.label
+      .filter((d: SunburstNode) => !d.target || !this.labelVisible(d.target))
+      // @ts-ignore
+      .transition(t)
+      .style("visibility", "hidden");
   }
 }
