@@ -1,27 +1,25 @@
 {
   "privileges": [],
-  "dataRoles": [
-    { "name": "level1", "kind": "Grouping", "displayName": "Level 1 (Top)" },
-    { "name": "level2", "kind": "Grouping", "displayName": "Level 2" },
-    { "name": "level3", "kind": "Grouping", "displayName": "Level 3" },
-    { "name": "level4", "kind": "Grouping", "displayName": "Level 4" },
-    { "name": "level5", "kind": "Grouping", "displayName": "Level 5" }
-  ],
-  "dataViewMappings": [
+    "dataRoles": [
+    { "name": "domains", "kind": "Grouping", "displayName": "Domains Table" },
+    { "name": "ebene2", "kind": "Grouping", "displayName": "Level 2 Table" },
+    { "name": "ebene3", "kind": "Grouping", "displayName": "Level 3 Table" },
+    { "name": "ebene4", "kind": "Grouping", "displayName": "Level 4 Table" }
+    ],
+    "dataViewMappings": [
     {
-      "matrix": {
+        "table": {
         "rows": {
-          "select": [
-            { "for": { "in": "level1" } },
-            { "for": { "in": "level2" } },
-            { "for": { "in": "level3" } },
-            { "for": { "in": "level4" } },
-            { "for": { "in": "level5" } }
-          ]
+            "select": [
+                { "for": { "in": "domains" }},
+                { "for": { "in": "ebene2" }},
+                { "for": { "in": "ebene3" }},
+                { "for": { "in": "ebene4" }}
+            ]
         }
-      }
+        }
     }
-  ],
+    ],
   "objects": {
     "labels": {
       "displayName": "Labels",

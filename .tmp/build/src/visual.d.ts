@@ -25,8 +25,8 @@ export declare class Visual implements IVisual {
     private path;
     private label;
     constructor(options: VisualConstructorOptions);
-    /** Recursively converts Power BI matrix node tree into the D3 hierarchy format */
-    private matrixNodeToHierarchy;
+    private rawTableToObjects;
+    private buildHierarchy;
     update(options: VisualUpdateOptions): void;
     private getFill;
     private labelVisible;
