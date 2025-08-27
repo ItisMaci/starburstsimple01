@@ -25,6 +25,7 @@
 */
 
 // src/visual.ts
+// src/visual.ts
 "use strict";
 import "./../style/visual.less";
 
@@ -47,246 +48,290 @@ interface HierarchyData {
 
 export class Visual implements IVisual {
   private host: IVisualHost;
+
   private container: Selection<HTMLDivElement>;
+  private header: Selection<HTMLDivElement>;
+  private legend: Selection<HTMLDivElement>;
+  private vis: Selection<HTMLDivElement>;
   private tooltip: Selection<HTMLDivElement>;
   private crumbs: Selection<HTMLDivElement>;
-  private legend: Selection<HTMLDivElement>;
+
   private svg: Selection<SVGSVGElement>;
   private g: Selection<SVGGElement>;
+  private pathsG: Selection<SVGGElement>;
+  private labelsG: Selection<SVGGElement>;
 
   private width = 0;
   private height = 0;
   private radius = 0;
 
-  // Store current hierarchy state
   private root: d3.HierarchyRectangularNode<HierarchyData> | null = null;
   private color: d3.ScaleOrdinal<string, string, never> | null = null;
-  private arc: d3.Arc<any, d3.HierarchyRectangularNode<HierarchyData>> | null = null;
+  private arc: d3.Arc<any, any> | null = null;
+
   private nodes: d3.HierarchyRectangularNode<HierarchyData>[] = [];
-  private path: Selection<SVGPathElement> | null = null;
-  private label: Selection<SVGTextElement> | null = null;
+  private path!: Selection<SVGPathElement>;
+  private label!: Selection<SVGTextElement>;
 
   constructor(options: VisualConstructorOptions) {
     this.host = options.host;
 
+    // Root container (no outer chrome that steals space inside a PBI tile)
     this.container = d3.select(options.element)
-      .append('div')
-      .style('width', '100%')
-      .style('height', '100%')
-      .style('position', 'relative')
-      .style('font-family', 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif')
-      .style('background', '#f8fafc')
-      .style('color', '#0f172a');
+      .append("div")
+      .style("position", "relative")
+      .style("width", "100%")
+      .style("height", "100%")
+      .style("font-family", "system-ui, -apple-system, Segoe UI, Roboto, sans-serif")
+      .style("background", "#fff")
+      .style("color", "#0f172a");
 
-    // Create panel structure like original
-    const panel = this.container.append('div')
-      .style('max-width', '1200px')
-      .style('margin', '32px auto')
-      .style('padding', '0 16px')
-      .style('background', '#ffffff')
-      .style('border', '3px solid #0f172a')
-      .style('border-radius', '16px')
-      .style('box-shadow', '0 6px 20px rgba(0,0,0,.12)')
-      .style('overflow', 'hidden');
+    // Header
+    this.header = this.container.append("div")
+      .style("padding", "8px 12px")
+      .style("display", "flex")
+      .style("align-items", "center")
+      .style("gap", "8px")
+      .style("border-bottom", "1px solid #e5e7eb");
 
-    // Header with legend
-    const header = panel.append('div')
-      .style('padding', '16px 20px')
-      .style('border-bottom', '1px solid #e2e8f0')
-      .style('display', 'flex')
-      .style('align-items', 'center')
-      .style('gap', '12px')
-      .style('flex-wrap', 'wrap');
+    this.header.append("div")
+      .style("font-weight", "800")
+      .style("font-size", "14px")
+      .text("Sunburst");
 
-    header.append('h2')
-      .style('margin', '0')
-      .style('font-size', '20px')
-      .style('font-weight', '800')
-      .style('letter-spacing', '.2px')
-      .text('Power BI Sunburst');
+    this.legend = this.header.append("div")
+      .style("display", "flex")
+      .style("flex-wrap", "wrap")
+      .style("gap", "8px")
+      .style("margin-left", "auto");
 
-    this.legend = header.append('div')
-      .style('display', 'flex')
-      .style('flex-wrap', 'wrap')
-      .style('gap', '10px')
-      .style('margin-left', 'auto');
+    // Visualization area
+    this.vis = this.container.append("div")
+      .style("position", "absolute")
+      .style("inset", "42px 0 32px 0") // leave room for header & crumbs
+      .style("display", "grid")
+      .style("place-items", "center");
 
-    // Vis container
-    const vis = panel.append('div')
-      .style('position', 'relative')
-      .style('display', 'grid')
-      .style('place-items', 'center')
-      .style('min-height', '760px')
-      .style('background', '#fff');
+    this.svg = this.vis.append("svg")
+      .attr("role", "img")
+      .attr("aria-label", "Sunburst partition visualization")
+      .style("display", "block")
+      .style("width", "100%")
+      .style("height", "100%");
 
-    this.tooltip = vis.append('div')
-      .style('position', 'absolute')
-      .style('pointer-events', 'none')
-      .style('opacity', '0')
-      .style('transform', 'translate(-50%, -120%)')
-      .style('background', '#111')
-      .style('color', '#fff')
-      .style('font-size', '12px')
-      .style('padding', '6px 8px')
-      .style('border-radius', '6px')
-      .style('box-shadow', '0 6px 18px rgba(0,0,0,.2)');
+    // Main group + persistent subgroups
+    this.g = this.svg.append("g");
+    this.pathsG = this.g.append("g");
+    this.labelsG = this.g.append("g").attr("pointer-events", "none").attr("text-anchor", "middle");
 
-    this.svg = vis.append('svg')
-      .attr('role', 'img')
-      .attr('aria-label', 'Sunburst partition visualization')
-      .style('display', 'block')
-      .style('height', 'auto')
-      .style('width', '100%');
+    // Tooltip
+    this.tooltip = this.vis.append("div")
+      .style("position", "absolute")
+      .style("pointer-events", "none")
+      .style("opacity", "0")
+      .style("transform", "translate(-50%, -120%)")
+      .style("background", "#111")
+      .style("color", "#fff")
+      .style("font-size", "12px")
+      .style("padding", "6px 8px")
+      .style("border-radius", "6px")
+      .style("box-shadow", "0 6px 18px rgba(0,0,0,.2)");
 
-    this.g = this.svg.append('g');
-
-    vis.append('div')
-      .style('position', 'absolute')
-      .style('width', '120px')
-      .style('height', '120px')
-      .style('border-radius', '999px')
-      .style('display', 'grid')
-      .style('place-items', 'center')
-      .style('font-size', '12px')
-      .style('color', '#64748b')
-      .style('pointer-events', 'none')
-      .style('text-align', 'center')
-      .text('Click to zoom\nBack with breadcrumbs');
+    // Center helper
+    this.vis.append("div")
+      .style("position", "absolute")
+      .style("width", "120px")
+      .style("height", "120px")
+      .style("border-radius", "999px")
+      .style("display", "grid")
+      .style("place-items", "center")
+      .style("font-size", "12px")
+      .style("color", "#64748b")
+      .style("pointer-events", "none")
+      .style("text-align", "center")
+      .style("white-space", "pre-line")
+      .text("Click to zoom\nBack with breadcrumbs");
 
     // Breadcrumbs
-    this.crumbs = panel.append('div')
-      .style('padding', '10px 16px 16px')
-      .style('font-size', '13px')
-      .style('color', '#64748b');
+    this.crumbs = this.container.append("div")
+      .style("position", "absolute")
+      .style("left", "0")
+      .style("right", "0")
+      .style("bottom", "0")
+      .style("padding", "8px 12px")
+      .style("font-size", "12px")
+      .style("color", "#64748b")
+      .style("border-top", "1px solid #e5e7eb");
   }
 
   public update(options: VisualUpdateOptions): void {
     const dv: DataView | undefined = options.dataViews?.[0];
     const catCols = dv?.categorical?.categories ?? [];
-    
-    if (!catCols.length) {
+
+    // If no data, clear & bail
+    if (!catCols.length || !catCols[0].values.length) {
       this.clear();
       return;
     }
 
-    this.width = Math.max(400, options.viewport.width);
-    this.height = Math.max(400, options.viewport.height - 200); // Account for header/footer
-    this.radius = Math.min(this.width, this.height) / 2 - 10;
+    // Measure actual rendered size (after layout), not just viewport
+    const visRect = (this.vis.node() as HTMLDivElement).getBoundingClientRect();
+    const w = Math.max(0, visRect.width);
+    const h = Math.max(0, visRect.height);
+    this.width = w;
+    this.height = h;
+    this.radius = Math.max(0, Math.min(this.width, this.height) / 2 - 10);
 
     this.svg
-      .attr('viewBox', [-this.width/2, -this.height/2, this.width, this.height])
-      .attr('width', this.width)
-      .attr('height', this.height);
+      .attr("viewBox", `${-this.width / 2} ${-this.height / 2} ${this.width} ${this.height}`)
+      .attr("width", this.width)
+      .attr("height", this.height);
 
-    // Build hierarchy from Power BI data exactly like original D3 version
+    // Build hierarchy from Power BI categories
     const data = this.buildHierarchyFromPowerBI(catCols);
-    
-    // D3 hierarchy and partition - exact copy from original
+
+    // Hierarchy & partition — roll up leaves only (matches original intent)
     const hierarchy = d3.hierarchy<HierarchyData>(data)
-        .sum(d => d.value || 0)
-        .sort((a, b) => (b.value || 0) - (a.value || 0));
+      .sum(d => (d.children && d.children.length) ? 0 : (d.value || 0))
+      .sort((a, b) => (b.value || 0) - (a.value || 0));
 
     const partition = d3.partition<HierarchyData>().size([2 * Math.PI, this.radius]);
     const rootPartitioned = partition(hierarchy);
-
     this.root = rootPartitioned;
-    
-    // Color by top-level ancestor - exact copy from original
-    this.color = d3.scaleOrdinal(d3.schemeTableau10);
-    const topAncestor = (d: d3.HierarchyRectangularNode<HierarchyData>) => 
+
+    // Initialize current tween state once
+    this.root.each(d => (d as any).current = { x0: d.x0, x1: d.x1, y0: d.y0, y1: d.y1 });
+
+    // Stable color scale domain (top-level names in data order)
+    if (!this.color) {
+      this.color = d3.scaleOrdinal<string, string>().range(d3.schemeTableau10);
+    }
+    const topNames = (this.root.children ?? []).map(d => d.data.name);
+    (this.color as any).domain(topNames);
+
+    // Color helper: map by top ancestor and fade to background with depth
+    const topAncestor = (d: d3.HierarchyRectangularNode<HierarchyData>) =>
       (d.depth === 1 ? d : d.ancestors().find(a => a.depth === 1) || d);
     const getFill = (d: d3.HierarchyRectangularNode<HierarchyData>) => {
       const base = this.color!(topAncestor(d).data.name);
       const maxDepth = this.root!.height;
-      const t = Math.max(0, Math.min(1, (d.depth-1) / (maxDepth-1 || 1)));
-      return d3.interpolateLab(base, '#f8fafc')(t * 0.85);
+      const t = Math.max(0, Math.min(1, (d.depth - 1) / (maxDepth - 1 || 1)));
+      return d3.interpolateLab(base, "#f8fafc")(t * 0.85);
     };
 
-    // Arc definition - exact copy from original
-    this.arc = d3.arc<d3.HierarchyRectangularNode<HierarchyData>>()
-      .startAngle(d => d.x0)
-      .endAngle(d => d.x1)
-      .padAngle(d => Math.min((d.x1 - d.x0) / 2, 0.003))
+    // Arc generator
+    this.arc = d3.arc<any>()
+      .startAngle((d: any) => d.x0)
+      .endAngle((d: any) => d.x1)
+      .padAngle((d: any) => Math.min(((d.x1 - d.x0) / 2), 0.003))
       .padRadius(this.radius)
-      .innerRadius(d => d.y0)
-      .outerRadius(d => Math.max(d.y0, d.y1 - 1));
+      .innerRadius((d: any) => d.y0)
+      .outerRadius((d: any) => Math.max(d.y0, d.y1 - 1));
 
+    // Filter out root for drawing
     this.nodes = this.root.descendants().filter(d => d.depth > 0);
 
-    // Render paths - exact copy from original logic
-    this.path = this.g.selectAll<SVGPathElement, d3.HierarchyRectangularNode<HierarchyData>>('path')
-      .data(this.nodes)
-      .join('path')
-      .attr('fill', d => getFill(d))
-      .attr('d', this.arc)
-      .attr('stroke', '#fff')
-      .attr('stroke-width', 1)
-      .style('cursor', 'pointer')
-      .on('click', (event, d) => this.zoomTo(d))
-      .on('mousemove', (event, d) => {
-        const seq = this.safeAncestors(d).map(n => n.data.name).join(' › ');
-        this.tooltip.style('opacity', '0.96');
-        this.tooltip.text(`${seq} (Elements: ${Math.round(d.value || 0)})`);
-        const rect = this.container.node()!.getBoundingClientRect();
-        this.tooltip.style('left', (event.clientX - rect.left) + 'px');
-        this.tooltip.style('top', (event.clientY - rect.top) + 'px');
-      })
-      .on('mouseleave', () => this.tooltip.style('opacity', '0'));
+    // Key by full path to keep elements stable across updates
+    const pathKey = (n: d3.HierarchyRectangularNode<HierarchyData>) =>
+      n.ancestors().map(a => a.data.name).reverse().join("/");
 
-    // Render labels - exact copy from original
-    this.label = this.g.append('g')
-      .attr('pointer-events', 'none')
-      .attr('text-anchor', 'middle')
-      .selectAll<SVGTextElement, d3.HierarchyRectangularNode<HierarchyData>>('text')
-      .data(this.nodes)
-      .join('text')
-      .attr('dy', '0.32em')
-      .attr('fill', '#0f172a')
-      .attr('font-size', 18)
-      .attr('font-weight', 600)
-      .style('user-select', 'none')
-      .style('visibility', d => this.labelVisible(d) ? 'visible' : 'hidden')
-      .attr('transform', d => this.labelTransform(d))
-      .text(d => {
-        const name = d.data.name;
-        return name.length > 8 ? name.slice(0, 8) + "..." : name;
-      });
+    // PATHS — keyed join
+    this.path = this.pathsG.selectAll<SVGPathElement, any>("path")
+      .data(this.nodes, pathKey as any)
+      .join(
+        enter => enter.append("path")
+          .attr("fill", (d: any) => getFill(d))
+          .attr("stroke", "#fff")
+          .attr("stroke-width", 1)
+          .style("cursor", "pointer")
+          .attr("d", (d: any) => this.arc!((d as any).current))
+          .on("click", (_event, d) => this.zoomTo(d))
+          .on("mousemove", (event: MouseEvent, d) => {
+            const seq = this.safeAncestors(d).map(n => n.data.name).join(" › ");
+            this.tooltip.style("opacity", "0.96");
+            this.tooltip.text(`${seq} (Elements: ${Math.round(d.value || 0)})`);
+            const svgRect = (this.vis.node() as HTMLDivElement).getBoundingClientRect();
+            this.tooltip.style("left", (event.clientX - svgRect.left) + "px");
+            this.tooltip.style("top", (event.clientY - svgRect.top) + "px");
+          })
+          .on("mouseleave", () => this.tooltip.style("opacity", "0")),
+        update => update
+          .attr("fill", (d: any) => getFill(d))
+          .attr("d", (d: any) => this.arc!((d as any).current)),
+        exit => exit.remove()
+      );
 
+    // LABELS — keyed join
+    this.label = this.labelsG.selectAll<SVGTextElement, any>("text")
+      .data(this.nodes, pathKey as any)
+      .join(
+        enter => enter.append("text")
+          .attr("dy", "0.32em")
+          .attr("fill", "#0f172a")
+          .attr("font-size", 18)
+          .attr("font-weight", 600)
+          .style("user-select", "none")
+          .style("visibility", (d: any) => this.labelVisible((d as any).current) ? "visible" : "hidden")
+          .attr("transform", (d: any) => this.labelTransform((d as any).current))
+          .text(d => {
+            const name = d.data.name;
+            return name.length > 8 ? name.slice(0, 8) + "..." : name;
+          }),
+        update => update
+          .style("visibility", (d: any) => this.labelVisible((d as any).current) ? "visible" : "hidden")
+          .attr("transform", (d: any) => this.labelTransform((d as any).current))
+          .text(d => {
+            const name = d.data.name;
+            return name.length > 8 ? name.slice(0, 8) + "..." : name;
+          }),
+        exit => exit.remove()
+      );
+
+    // Legend & breadcrumbs
     this.updateLegend();
     this.updateCrumbs(this.root);
   }
 
-  // Build hierarchy from Power BI categorical data
+  // Build hierarchy from Power BI categorical columns (one column per level)
   private buildHierarchyFromPowerBI(catCols: powerbi.DataViewCategoryColumn[]): HierarchyData {
     const rowCount = catCols[0].values.length;
-    
-    // Create root
-    const root: HierarchyData & { _childMap?: Map<string, any> } = { 
-      name: "Root", 
-      children: [],
-      _childMap: new Map()
+
+    type NodeExt = HierarchyData & { _childMap?: Map<string, NodeExt> };
+    const root: NodeExt = { name: "Wien", children: [], _childMap: new Map() };
+    const seenPaths = new Set<string>();
+
+    const norm = (v: any): string | null => {
+      if (v == null) return null;
+      const s = String(v).trim();
+      if (!s) return null;
+      const lo = s.toLowerCase();
+      if (lo === "null" || lo === "(blank)") return null;
+      return s;
     };
 
-    // Build paths from Power BI data
     for (let r = 0; r < rowCount; r++) {
       const path: string[] = [];
       for (let l = 0; l < catCols.length; l++) {
-        const val = catCols[l]?.values?.[r];
-        if (val == null || val === "" || val === "null") break;
-        path.push(String(val));
+        const raw = norm(catCols[l]?.values?.[r]);
+        if (!raw) break; // stop at first missing
+        path.push(raw);
       }
       if (!path.length) continue;
 
-      // Build hierarchy path
-      let current: any = root;
+      const full = path.join(" / ");
+      if (seenPaths.has(full)) continue; // dedupe identical rows
+      seenPaths.add(full);
+
+      // Walk/build
+      let current = root;
       for (let i = 0; i < path.length; i++) {
         const name = path[i];
         current._childMap = current._childMap || new Map();
         current.children = current.children || [];
-        
+
         if (!current._childMap.has(name)) {
-          const child = { 
-            name, 
+          const child: NodeExt = {
+            name,
             children: [],
             _childMap: new Map(),
             __meta: { depth: i + 1 }
@@ -294,36 +339,27 @@ export class Visual implements IVisual {
           current._childMap.set(name, child);
           current.children.push(child);
         }
-        current = current._childMap.get(name);
+        current = current._childMap.get(name)!;
       }
-      
-      // Count leaf nodes only
+      // Leaf count (+1)
       current.value = (current.value || 0) + 1;
     }
 
-    // Clean up helper maps and calculate values - exact copy from original
-    const cleanAndRollup = (node: any): number => {
-      delete node._childMap;
-      if (node.children && node.children.length > 0) {
-        let sum = 0;
-        for (const child of node.children) {
-          sum += cleanAndRollup(child);
-        }
-        node.value = sum;
-        return sum;
-      }
-      return node.value || 0;
+    // Cleanup helper maps
+    const strip = (n: NodeExt) => {
+      delete n._childMap;
+      (n.children ?? []).forEach(strip as any);
     };
-    
-    cleanAndRollup(root);
+    strip(root);
+
     return root;
   }
 
-  // Zoom function - exact copy from original
+  // Zoom logic — reuse persistent selections
   private zoomTo(p: d3.HierarchyRectangularNode<HierarchyData> | null) {
-    if (!p || !this.root || !this.arc || !this.path || !this.label) return;
-    
-    this.tooltip.style('opacity', '0');
+    if (!p || !this.root || !this.arc) return;
+
+    this.tooltip.style("opacity", "0");
     this.updateCrumbs(p);
 
     this.root.each((d: any) => d.target = {
@@ -336,23 +372,18 @@ export class Visual implements IVisual {
     const t = this.g.transition().duration(650);
 
     this.path.transition(t as any)
-      .tween('data', (d: any) => {
-        const i = d3.interpolate(d.current || {x0:d.x0, x1:d.x1, y0:d.y0, y1:d.y1}, d.target);
-        return (t: number) => (d.current = i(t));
+      .tween("data", function (d: any) {
+        const i = d3.interpolate(d.current, d.target);
+        return (tt: number) => (d.current = i(tt));
       })
-      .attrTween('d', (d: any) => () => this.arc!(d.current));
+      .attrTween("d", (d: any) => () => this.arc!(d.current));
 
-    this.label.filter((d: any) => this.labelVisible(d.target))
+    this.label
       .transition(t as any)
-      .style('visibility', 'visible')
-      .attrTween('transform', (d: any) => () => this.labelTransform(d.current));
-
-    this.label.filter((d: any) => !this.labelVisible(d.target))
-      .transition(t as any)
-      .style('visibility', 'hidden');
+      .style("visibility", (d: any) => this.labelVisible(d.target) ? "visible" : "hidden")
+      .attrTween("transform", (d: any) => () => this.labelTransform(d.current));
   }
 
-  // Helper functions - exact copies from original
   private labelVisible(d: any) {
     const a = (d.x1 - d.x0);
     const r = (d.y1 - d.y0);
@@ -360,58 +391,71 @@ export class Visual implements IVisual {
   }
 
   private labelTransform(d: any) {
-    const x = (d.x0 + d.x1) / 2 * 180 / Math.PI;
+    const x = (d.x0 + d.x1) / 2 * 180 / Math.PI; // degrees
     const y = (d.y0 + d.y1) / 2;
     return `rotate(${x - 90}) translate(${y},0) rotate(${x < 180 ? 0 : 180})`;
   }
 
   private safeAncestors(n: d3.HierarchyRectangularNode<HierarchyData>) {
-    if (n && typeof n.ancestors === 'function') return n.ancestors().reverse();
+    if (n && typeof n.ancestors === "function") return n.ancestors().reverse();
     return this.root ? [this.root] : [];
   }
 
   private updateLegend() {
     if (!this.root || !this.color) return;
-    
     const topLevel = this.root.children || [];
-    this.legend.selectAll('*').remove();
-    this.legend.selectAll('div.key')
-      .data(topLevel)
-      .join('div')
-      .attr('class', 'key')
-      .style('display', 'inline-flex')
-      .style('align-items', 'center')
-      .style('gap', '6px')
-      .style('font-size', '12px')
-      .style('color', '#64748b')
-      .html((d) => `<span style="width:40px;height:12px;border-radius:3px;background:${this.color!(d.data.name)}"></span>${d.data.name}`);
+
+    const item = this.legend.selectAll<HTMLDivElement, any>("div.key")
+    .data(topLevel, (d: any) => d.data.name);
+
+    item.join(
+    enter => {
+        const row = enter.append("div").attr("class", "key") /* styles... */;
+        row.append("span").attr("class","swatch") /* styles... */;
+        row.append("span").attr("class","label");
+        return row; // return the DIV selection
+    },
+    update => {
+        // mutate children but return the original DIV selection
+        update.select<HTMLSpanElement>("span.swatch")
+        .style("background", (d: any) => this.color!(d.data.name));
+        update.select<HTMLSpanElement>("span.label")
+        .text((d: any) => d.data.name);
+        return update; // return the DIV selection
+    },
+    exit => exit.remove()
+    );
   }
 
   private updateCrumbs(n: d3.HierarchyRectangularNode<HierarchyData>) {
     if (!this.root) return;
-    
-    const seq = this.safeAncestors(n).map(x => x.data.name);
-    const html = seq.map((name, i) => {
-      if (i === seq.length-1) return `<strong>${name}</strong>`;
-      return `<a href="#" data-depth="${i}" style="color:#0ea5e9;text-decoration:none;">${name}</a>`;
-    }).join('<span style="opacity:.5;padding:0 6px;">›</span>');
-    
+
+    const ancestors = this.safeAncestors(n);
+    const pathKey = (node: d3.HierarchyRectangularNode<HierarchyData>) =>
+      node.ancestors().map(a => a.data.name).reverse().join("/");
+
+    const html = ancestors.map((node, i) => {
+      const name = node.data.name;
+      if (i === ancestors.length - 1) return `<strong>${name}</strong>`;
+      return `<a href="#" data-key="${pathKey(node)}" style="color:#0ea5e9;text-decoration:none;">${name}</a>`;
+    }).join(`<span style="opacity:.5;padding:0 6px;">›</span>`);
+
     this.crumbs.html(html);
 
-    // Add click handlers for breadcrumbs
-    this.crumbs.selectAll('a').on('click', (event: Event) => {
+    this.crumbs.selectAll<HTMLAnchorElement, any>("a").on("click", (event) => {
       event.preventDefault();
       const a = event.currentTarget as HTMLAnchorElement;
-      const depth = +a.getAttribute('data-depth')!;
-      const name = a.textContent!;
-      const target = depth === 0 ? this.root! : 
-        this.nodes.find(nn => nn.depth === depth && nn.data.name === name) || this.root!;
+      const key = a.getAttribute("data-key")!;
+      const target = this.nodes.find(nn =>
+        nn.ancestors().map(a => a.data.name).reverse().join("/") === key
+      ) || this.root!;
       this.zoomTo(target);
     });
   }
 
   private clear() {
-    this.g.selectAll("*").remove();
+    this.pathsG.selectAll("*").remove();
+    this.labelsG.selectAll("*").remove();
     this.legend.html("");
     this.crumbs.html("");
     this.tooltip.style("opacity", "0");
@@ -419,6 +463,6 @@ export class Visual implements IVisual {
   }
 
   public destroy(): void {
-    // Cleanup if needed
+    // No-op (PBI disposes DOM subtree)
   }
 }

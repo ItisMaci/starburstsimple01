@@ -6,11 +6,15 @@ import IVisual = powerbi.extensibility.visual.IVisual;
 export declare class Visual implements IVisual {
     private host;
     private container;
+    private header;
+    private legend;
+    private vis;
     private tooltip;
     private crumbs;
-    private legend;
     private svg;
     private g;
+    private pathsG;
+    private labelsG;
     private width;
     private height;
     private radius;
