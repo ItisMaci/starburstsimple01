@@ -25,7 +25,6 @@
 */
 
 // src/visual.ts
-// src/visual.ts
 "use strict";
 import "./../style/visual.less";
 
@@ -76,7 +75,6 @@ export class Visual implements IVisual {
   constructor(options: VisualConstructorOptions) {
     this.host = options.host;
 
-    // Root container (no outer chrome that steals space inside a PBI tile)
     this.container = d3.select(options.element)
       .append("div")
       .style("position", "relative")
@@ -86,7 +84,6 @@ export class Visual implements IVisual {
       .style("background", "#fff")
       .style("color", "#0f172a");
 
-    // Header
     this.header = this.container.append("div")
       .style("padding", "8px 12px")
       .style("display", "flex")
@@ -105,10 +102,9 @@ export class Visual implements IVisual {
       .style("gap", "8px")
       .style("margin-left", "auto");
 
-    // Visualization area
     this.vis = this.container.append("div")
       .style("position", "absolute")
-      .style("inset", "42px 0 32px 0") // leave room for header & crumbs
+      .style("inset", "42px 0 32px 0")
       .style("display", "grid")
       .style("place-items", "center");
 
@@ -119,12 +115,10 @@ export class Visual implements IVisual {
       .style("width", "100%")
       .style("height", "100%");
 
-    // Main group + persistent subgroups
     this.g = this.svg.append("g");
     this.pathsG = this.g.append("g");
     this.labelsG = this.g.append("g").attr("pointer-events", "none").attr("text-anchor", "middle");
 
-    // Tooltip
     this.tooltip = this.vis.append("div")
       .style("position", "absolute")
       .style("pointer-events", "none")
@@ -137,7 +131,6 @@ export class Visual implements IVisual {
       .style("border-radius", "6px")
       .style("box-shadow", "0 6px 18px rgba(0,0,0,.2)");
 
-    // Center helper
     this.vis.append("div")
       .style("position", "absolute")
       .style("width", "120px")
@@ -152,7 +145,6 @@ export class Visual implements IVisual {
       .style("white-space", "pre-line")
       .text("Click to zoom\nBack with breadcrumbs");
 
-    // Breadcrumbs
     this.crumbs = this.container.append("div")
       .style("position", "absolute")
       .style("left", "0")
@@ -168,18 +160,14 @@ export class Visual implements IVisual {
     const dv: DataView | undefined = options.dataViews?.[0];
     const catCols = dv?.categorical?.categories ?? [];
 
-    // If no data, clear & bail
     if (!catCols.length || !catCols[0].values.length) {
       this.clear();
       return;
     }
 
-    // Measure actual rendered size (after layout), not just viewport
     const visRect = (this.vis.node() as HTMLDivElement).getBoundingClientRect();
-    const w = Math.max(0, visRect.width);
-    const h = Math.max(0, visRect.height);
-    this.width = w;
-    this.height = h;
+    this.width = Math.max(0, visRect.width);
+    this.height = Math.max(0, visRect.height);
     this.radius = Math.max(0, Math.min(this.width, this.height) / 2 - 10);
 
     this.svg
@@ -187,10 +175,8 @@ export class Visual implements IVisual {
       .attr("width", this.width)
       .attr("height", this.height);
 
-    // Build hierarchy from Power BI categories
     const data = this.buildHierarchyFromPowerBI(catCols);
 
-    // Hierarchy & partition — roll up leaves only (matches original intent)
     const hierarchy = d3.hierarchy<HierarchyData>(data)
       .sum(d => (d.children && d.children.length) ? 0 : (d.value || 0))
       .sort((a, b) => (b.value || 0) - (a.value || 0));
@@ -199,27 +185,17 @@ export class Visual implements IVisual {
     const rootPartitioned = partition(hierarchy);
     this.root = rootPartitioned;
 
-    // Initialize current tween state once
+    // init tween state
     this.root.each(d => (d as any).current = { x0: d.x0, x1: d.x1, y0: d.y0, y1: d.y1 });
 
-    // Stable color scale domain (top-level names in data order)
-    if (!this.color) {
-      this.color = d3.scaleOrdinal<string, string>().range(d3.schemeTableau10);
-    }
+    // stable palette by top-level names
+    if (!this.color) this.color = d3.scaleOrdinal<string, string>().range(d3.schemeTableau10);
     const topNames = (this.root.children ?? []).map(d => d.data.name);
     (this.color as any).domain(topNames);
 
-    // Color helper: map by top ancestor and fade to background with depth
-    const topAncestor = (d: d3.HierarchyRectangularNode<HierarchyData>) =>
-      (d.depth === 1 ? d : d.ancestors().find(a => a.depth === 1) || d);
-    const getFill = (d: d3.HierarchyRectangularNode<HierarchyData>) => {
-      const base = this.color!(topAncestor(d).data.name);
-      const maxDepth = this.root!.height;
-      const t = Math.max(0, Math.min(1, (d.depth - 1) / (maxDepth - 1 || 1)));
-      return d3.interpolateLab(base, "#f8fafc")(t * 0.85);
-    };
+    // compute per-node colors (parent→child lightening)
+    this.computeNodeColors();
 
-    // Arc generator
     this.arc = d3.arc<any>()
       .startAngle((d: any) => d.x0)
       .endAngle((d: any) => d.x1)
@@ -228,19 +204,18 @@ export class Visual implements IVisual {
       .innerRadius((d: any) => d.y0)
       .outerRadius((d: any) => Math.max(d.y0, d.y1 - 1));
 
-    // Filter out root for drawing
     this.nodes = this.root.descendants().filter(d => d.depth > 0);
 
-    // Key by full path to keep elements stable across updates
+    // full-path key for stability (and breadcrumbs)
     const pathKey = (n: d3.HierarchyRectangularNode<HierarchyData>) =>
       n.ancestors().map(a => a.data.name).reverse().join("/");
 
-    // PATHS — keyed join
+    // PATHS
     this.path = this.pathsG.selectAll<SVGPathElement, any>("path")
       .data(this.nodes, pathKey as any)
       .join(
         enter => enter.append("path")
-          .attr("fill", (d: any) => getFill(d))
+          .attr("fill", (d: any) => this.getFill(d))
           .attr("stroke", "#fff")
           .attr("stroke-width", 1)
           .style("cursor", "pointer")
@@ -250,18 +225,18 @@ export class Visual implements IVisual {
             const seq = this.safeAncestors(d).map(n => n.data.name).join(" › ");
             this.tooltip.style("opacity", "0.96");
             this.tooltip.text(`${seq} (Elements: ${Math.round(d.value || 0)})`);
-            const svgRect = (this.vis.node() as HTMLDivElement).getBoundingClientRect();
-            this.tooltip.style("left", (event.clientX - svgRect.left) + "px");
-            this.tooltip.style("top", (event.clientY - svgRect.top) + "px");
+            const r = (this.vis.node() as HTMLDivElement).getBoundingClientRect();
+            this.tooltip.style("left", (event.clientX - r.left) + "px");
+            this.tooltip.style("top", (event.clientY - r.top) + "px");
           })
           .on("mouseleave", () => this.tooltip.style("opacity", "0")),
         update => update
-          .attr("fill", (d: any) => getFill(d))
+          .attr("fill", (d: any) => this.getFill(d))
           .attr("d", (d: any) => this.arc!((d as any).current)),
         exit => exit.remove()
       );
 
-    // LABELS — keyed join
+    // LABELS
     this.label = this.labelsG.selectAll<SVGTextElement, any>("text")
       .data(this.nodes, pathKey as any)
       .join(
@@ -287,42 +262,39 @@ export class Visual implements IVisual {
         exit => exit.remove()
       );
 
-    // Legend & breadcrumbs
     this.updateLegend();
     this.updateCrumbs(this.root);
   }
 
-  // Build hierarchy from Power BI categorical columns (one column per level)
-  private buildHierarchyFromPowerBI(catCols: powerbi.DataViewCategoryColumn[]): HierarchyData {
-    const rowCount = catCols[0].values.length;
+  // ----------------- Helpers -----------------
 
+  private buildHierarchyFromPowerBI(catCols: powerbi.DataViewCategoryColumn[]): HierarchyData {
     type NodeExt = HierarchyData & { _childMap?: Map<string, NodeExt> };
     const root: NodeExt = { name: "Wien", children: [], _childMap: new Map() };
-    const seenPaths = new Set<string>();
+
+    const rowCount = Math.max(...catCols.map(c => c.values.length));
+
+    const getVal = (col: powerbi.DataViewCategoryColumn, r: number) =>
+      r < col.values.length ? col.values[r] : null;
 
     const norm = (v: any): string | null => {
       if (v == null) return null;
       const s = String(v).trim();
       if (!s) return null;
       const lo = s.toLowerCase();
-      if (lo === "null" || lo === "(blank)") return null;
-      return s;
+      return (lo === "null" || lo === "(blank)" || lo === "(empty)") ? null : s;
     };
 
     for (let r = 0; r < rowCount; r++) {
       const path: string[] = [];
       for (let l = 0; l < catCols.length; l++) {
-        const raw = norm(catCols[l]?.values?.[r]);
-        if (!raw) break; // stop at first missing
+        const raw = norm(getVal(catCols[l], r));
+        if (!raw) break; // stop at first missing level for this row
         path.push(raw);
       }
       if (!path.length) continue;
 
-      const full = path.join(" / ");
-      if (seenPaths.has(full)) continue; // dedupe identical rows
-      seenPaths.add(full);
-
-      // Walk/build
+      // walk/build
       let current = root;
       for (let i = 0; i < path.length; i++) {
         const name = path[i];
@@ -341,11 +313,11 @@ export class Visual implements IVisual {
         }
         current = current._childMap.get(name)!;
       }
-      // Leaf count (+1)
+      // count leaf
       current.value = (current.value || 0) + 1;
     }
 
-    // Cleanup helper maps
+    // strip helper maps
     const strip = (n: NodeExt) => {
       delete n._childMap;
       (n.children ?? []).forEach(strip as any);
@@ -355,7 +327,31 @@ export class Visual implements IVisual {
     return root;
   }
 
-  // Zoom logic — reuse persistent selections
+  private computeNodeColors() {
+    if (!this.root || !this.color) return;
+    const baseBg = "#f8fafc";
+    const top = this.root.children ?? [];
+    for (const n of top) (n as any)._fill = this.color!(n.data.name);
+
+    const q: any[] = [...top];
+    while (q.length) {
+      const p = q.shift();
+      const kids = p.children ?? [];
+      if (kids.length) {
+        const t = 0.18; // how much to lighten per generation
+        for (const c of kids) {
+          const parentFill = (p as any)._fill as string;
+          (c as any)._fill = d3.interpolateLab(parentFill, baseBg)(t);
+          q.push(c);
+        }
+      }
+    }
+  }
+
+  private getFill(d: d3.HierarchyRectangularNode<HierarchyData>) {
+    return (d as any)._fill || "#ccc";
+  }
+
   private zoomTo(p: d3.HierarchyRectangularNode<HierarchyData> | null) {
     if (!p || !this.root || !this.arc) return;
 
@@ -391,7 +387,7 @@ export class Visual implements IVisual {
   }
 
   private labelTransform(d: any) {
-    const x = (d.x0 + d.x1) / 2 * 180 / Math.PI; // degrees
+    const x = (d.x0 + d.x1) / 2 * 180 / Math.PI;
     const y = (d.y0 + d.y1) / 2;
     return `rotate(${x - 90}) translate(${y},0) rotate(${x < 180 ? 0 : 180})`;
   }
@@ -405,39 +401,50 @@ export class Visual implements IVisual {
     if (!this.root || !this.color) return;
     const topLevel = this.root.children || [];
 
-    const item = this.legend.selectAll<HTMLDivElement, any>("div.key")
-    .data(topLevel, (d: any) => d.data.name);
+    const items = this.legend
+      .selectAll<HTMLDivElement, d3.HierarchyRectangularNode<HierarchyData>>("div.key")
+      .data(topLevel, (d: any) => d.data.name);
 
-    item.join(
-    enter => {
-        const row = enter.append("div").attr("class", "key") /* styles... */;
-        row.append("span").attr("class","swatch") /* styles... */;
-        row.append("span").attr("class","label");
-        return row; // return the DIV selection
-    },
-    update => {
-        // mutate children but return the original DIV selection
-        update.select<HTMLSpanElement>("span.swatch")
-        .style("background", (d: any) => this.color!(d.data.name));
-        update.select<HTMLSpanElement>("span.label")
-        .text((d: any) => d.data.name);
-        return update; // return the DIV selection
-    },
-    exit => exit.remove()
-    );
+    items.exit().remove();
+
+    const itemsEnter = items.enter()
+      .append("div")
+      .attr("class", "key")
+      .style("display", "inline-flex")
+      .style("align-items", "center")
+      .style("gap", "6px")
+      .style("font-size", "12px")
+      .style("color", "#64748b");
+
+    itemsEnter.append("span")
+      .attr("class", "swatch")
+      .style("display", "inline-block")
+      .style("width", "40px")
+      .style("height", "12px")
+      .style("border-radius", "3px");
+
+    itemsEnter.append("span").attr("class", "label");
+
+    const merged = itemsEnter.merge(items);
+
+    merged.select<HTMLSpanElement>("span.swatch")
+      .style("background", (d: any) => this.color!(d.data.name));
+
+    merged.select<HTMLSpanElement>("span.label")
+      .text((d: any) => d.data.name);
   }
 
   private updateCrumbs(n: d3.HierarchyRectangularNode<HierarchyData>) {
     if (!this.root) return;
-
     const ancestors = this.safeAncestors(n);
-    const pathKey = (node: d3.HierarchyRectangularNode<HierarchyData>) =>
+
+    const keyOf = (node: d3.HierarchyRectangularNode<HierarchyData>) =>
       node.ancestors().map(a => a.data.name).reverse().join("/");
 
     const html = ancestors.map((node, i) => {
       const name = node.data.name;
       if (i === ancestors.length - 1) return `<strong>${name}</strong>`;
-      return `<a href="#" data-key="${pathKey(node)}" style="color:#0ea5e9;text-decoration:none;">${name}</a>`;
+      return `<a href="#" data-key="${keyOf(node)}" style="color:#0ea5e9;text-decoration:none;">${name}</a>`;
     }).join(`<span style="opacity:.5;padding:0 6px;">›</span>`);
 
     this.crumbs.html(html);
@@ -446,9 +453,7 @@ export class Visual implements IVisual {
       event.preventDefault();
       const a = event.currentTarget as HTMLAnchorElement;
       const key = a.getAttribute("data-key")!;
-      const target = this.nodes.find(nn =>
-        nn.ancestors().map(a => a.data.name).reverse().join("/") === key
-      ) || this.root!;
+      const target = this.nodes.find(nn => keyOf(nn) === key) || this.root!;
       this.zoomTo(target);
     });
   }
@@ -463,6 +468,6 @@ export class Visual implements IVisual {
   }
 
   public destroy(): void {
-    // No-op (PBI disposes DOM subtree)
+    // No-op
   }
 }
