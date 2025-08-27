@@ -162,29 +162,23 @@ export class Visual implements IVisual {
 
     /** Recursively converts Power BI matrix node tree into the D3 hierarchy format */
     private matrixNodeToHierarchy(matrixNode: any, depth = 1): HierarchyData {
-        // Node name: Value or blank stub
-        const name = matrixNode.value != null ? String(matrixNode.value) : "—";
+    const name = matrixNode.value != null ? String(matrixNode.value) : "—";
 
-        // Leaf detection: If there are values, typically treat as leaf
-        if (matrixNode.children && matrixNode.children.length > 0) {
-            return {
-                name,
-                children: matrixNode.children.map((c: any) => this.matrixNodeToHierarchy(c, depth + 1)),
-                __meta: { depth }
-            };
-        }
-        // LEAF: Optionally, if aggregated values are needed, extract from matrixNode.values
-        // Here, assigning value: 1, as categorical count, or pick .values?.[id]?.value for measures
-        return {
-            name,
-            value: 1,
-            __meta: { depth }
-        };
+    if (matrixNode.children && matrixNode.children.length > 0) {
+        const children = matrixNode.children.map(c => this.matrixNodeToHierarchy(c, depth + 1));
+        // Calculate sum of children values
+        const value = children.reduce((acc, c) => acc + (c.value || 0), 0);
+        return { name, children, value, __meta: { depth } };
+    }
+    // Leaf node — assign value 1 or pull from .values if found
+    return { name, value: 1, __meta: { depth } };
     }
 
     public update(options: VisualUpdateOptions): void {
         // Extract hierarchical data from Power BI's matrix mapping!
         const matrix = options.dataViews?.[0]?.matrix;
+        console.clear();
+        console.log("Matrix dataView:", options.dataViews?.[0]?.matrix);
         if (!matrix || !matrix.rows || !matrix.rows.root || !matrix.rows.root.children) {
             this.clear();
             return;
