@@ -330,6 +330,10 @@ export class Visual implements IVisual {
   private layoutRoot!: SunburstNode;
   private nodesList!: SunburstNode[];
 
+  // Global Scale for textsize on arcs
+  private baseR?: number;      // captured on first render as your baseline
+  private globalScale = 1;     // R / baseR
+
   constructor(options: VisualConstructorOptions) {
     this.rootEl = options.element;
 
@@ -377,7 +381,7 @@ export class Visual implements IVisual {
       .sb-legend .swatch { display:inline-block; width:12px; height:12px; border-radius:2px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
       .sb-vis { width:100%; height:100%; position:relative; }
       .sb-tooltip { background:#111827; color:#f9fafb; padding:6px 8px; border-radius:6px; font-size:12px; box-shadow:0 2px 8px rgba(0,0,0,.25); }
-      svg text { paint-order: stroke; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; }
+      svg text { paint-order: stroke; stroke: #fff; stroke-width: 2px; stroke-linejoin: round; }
     `;
     this.rootEl.appendChild(style);
 
@@ -402,8 +406,14 @@ export class Visual implements IVisual {
     // Clear SVG dimensions and set new viewbox/size
     const W = width;
     const H = height;
-    const R = Math.max(10, Math.min(W, H) / 2 - 6);
+    let R = Math.max(10, Math.min(W, H) / 2 - 6);
 
+    // set base R and compute global scale relative to that baseline
+    if (this.baseR == null) this.baseR = R;
+    R *= 1;
+    this.globalScale = R / this.baseR;
+
+    // set width and height and viewbox
     this.svg.attr("width", W).attr("height", H).attr("viewBox", [-W / 2, -H / 2, W, H].join(" "));
 
     // Build data (static for now)
@@ -496,24 +506,42 @@ export class Visual implements IVisual {
             .append("text")
             .attr("dy", "0.32em")
             .attr("fill", "#0f172a")
-            .attr("font-size", 14)
+            .attr("font-size", (d: any) => {
+              const base = 10;                 // 8px reference
+              const referenceWordSize = 11;   // reference length
+              const nameLen = Math.max(1, d?.data?.name?.length || 1);
+
+              // word-length scaling (always applied)
+              const lengthScale = referenceWordSize / nameLen;
+              let size = base * lengthScale;
+
+              // usable angular width in degrees
+              const raw = d.x1 - d.x0;
+              const pad = Math.min(raw / 2, 0.003);
+              const effective = Math.max(0, raw - 2 * pad);   // radians
+              const deg = effective * 180 / Math.PI;
+
+              // if name shorter than reference AND angle <= 5°, apply angle factor
+              if (nameLen < referenceWordSize && deg <= 5) {
+                const angleFactor = deg / 5;
+                size *= angleFactor;
+              }
+
+              size *= this.globalScale;
+
+              return size;
+            })
             .attr("font-weight", 600 as any)
             .attr("text-anchor", "middle")
             .style("user-select", "none")
             .style("visibility", (d) => (this.labelVisible((d as any) as ArcDatum) ? "visible" : "hidden"))
             .attr("transform", (d) => this.labelTransform((d as any) as ArcDatum))
-            .text((d) => {
-              const name = d.data.name;
-              return name.length > 12 ? name.slice(0, 12) + "..." : name;
-            }),
+            .text((d) => d.data.name),
         (update) =>
           update
             .style("visibility", (d) => (this.labelVisible((d as any) as ArcDatum) ? "visible" : "hidden"))
             .attr("transform", (d) => this.labelTransform((d as any) as ArcDatum))
-            .text((d) => {
-              const name = d.data.name;
-              return name.length > 12 ? name.slice(0, 12) + "..." : name;
-            }),
+            .text((d) => d.data.name),
         (exit) => exit.remove()
       );
 

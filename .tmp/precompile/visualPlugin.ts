@@ -5,8 +5,8 @@ import VisualConstructorOptions = powerbiVisualsApi.extensibility.visual.VisualC
 import DialogConstructorOptions = powerbiVisualsApi.extensibility.visual.DialogConstructorOptions;
 var powerbiKey: any = "powerbi";
 var powerbi: any = window[powerbiKey];
-var starburstsimple0195D57F49CDC347B7B59E21750C972DF4: IVisualPlugin = {
-    name: 'starburstsimple0195D57F49CDC347B7B59E21750C972DF4',
+var starburstsimple0195D57F49CDC347B7B59E21750C972DF4_DEBUG: IVisualPlugin = {
+    name: 'starburstsimple0195D57F49CDC347B7B59E21750C972DF4_DEBUG',
     displayName: 'starburst_simple_01',
     class: 'Visual',
     apiVersion: '5.3.0',
@@ -27,6 +27,6 @@ var starburstsimple0195D57F49CDC347B7B59E21750C972DF4: IVisualPlugin = {
 if (typeof powerbi !== "undefined") {
     powerbi.visuals = powerbi.visuals || {};
     powerbi.visuals.plugins = powerbi.visuals.plugins || {};
-    powerbi.visuals.plugins["starburstsimple0195D57F49CDC347B7B59E21750C972DF4"] = starburstsimple0195D57F49CDC347B7B59E21750C972DF4;
+    powerbi.visuals.plugins["starburstsimple0195D57F49CDC347B7B59E21750C972DF4_DEBUG"] = starburstsimple0195D57F49CDC347B7B59E21750C972DF4_DEBUG;
 }
-export default starburstsimple0195D57F49CDC347B7B59E21750C972DF4;
+export default starburstsimple0195D57F49CDC347B7B59E21750C972DF4_DEBUG;

@@ -15,6 +15,8 @@ export declare class Visual implements IVisual {
     private label;
     private layoutRoot;
     private nodesList;
+    private baseR?;
+    private globalScale;
     constructor(options: VisualConstructorOptions);
     private initChart;
     update(options: VisualUpdateOptions): void;
