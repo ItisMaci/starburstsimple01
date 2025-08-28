@@ -17,10 +17,14 @@ export declare class Visual implements IVisual {
     private nodesList;
     private baseR?;
     private globalScale;
+    private fontSizeOption;
     constructor(options: VisualConstructorOptions);
     private initChart;
     update(options: VisualUpdateOptions): void;
     private labelVisible;
+    private scaleFontSizeForEach;
+    private truncatedText;
+    private scaleFontSizeForEverything;
     private labelTransform;
     private safeAncestors;
     private updateLegend;

@@ -332,7 +332,9 @@ export class Visual implements IVisual {
 
   // Global Scale for textsize on arcs
   private baseR?: number;      // captured on first render as your baseline
-  private globalScale = 1;     // R / baseR
+  private globalScale: number = 1;     // R / baseR
+
+  private fontSizeOption: number = 12;
 
   constructor(options: VisualConstructorOptions) {
     this.rootEl = options.element;
@@ -381,7 +383,7 @@ export class Visual implements IVisual {
       .sb-legend .swatch { display:inline-block; width:12px; height:12px; border-radius:2px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
       .sb-vis { width:100%; height:100%; position:relative; }
       .sb-tooltip { background:#111827; color:#f9fafb; padding:6px 8px; border-radius:6px; font-size:12px; box-shadow:0 2px 8px rgba(0,0,0,.25); }
-      svg text { paint-order: stroke; stroke: #fff; stroke-width: 2px; stroke-linejoin: round; }
+      svg text { paint-order: stroke; stroke: #fff; stroke-width: 0px; stroke-linejoin: round; }
     `;
     this.rootEl.appendChild(style);
 
@@ -410,7 +412,7 @@ export class Visual implements IVisual {
 
     // set base R and compute global scale relative to that baseline
     if (this.baseR == null) this.baseR = R;
-    R *= 1;
+    R *= 2;
     this.globalScale = R / this.baseR;
 
     // set width and height and viewbox
@@ -506,37 +508,13 @@ export class Visual implements IVisual {
             .append("text")
             .attr("dy", "0.32em")
             .attr("fill", "#0f172a")
-            .attr("font-size", (d: any) => {
-              const base = 10;                 // 8px reference
-              const referenceWordSize = 11;   // reference length
-              const nameLen = Math.max(1, d?.data?.name?.length || 1);
-
-              // word-length scaling (always applied)
-              const lengthScale = referenceWordSize / nameLen;
-              let size = base * lengthScale;
-
-              // usable angular width in degrees
-              const raw = d.x1 - d.x0;
-              const pad = Math.min(raw / 2, 0.003);
-              const effective = Math.max(0, raw - 2 * pad);   // radians
-              const deg = effective * 180 / Math.PI;
-
-              // if name shorter than reference AND angle <= 5°, apply angle factor
-              if (nameLen < referenceWordSize && deg <= 5) {
-                const angleFactor = deg / 5;
-                size *= angleFactor;
-              }
-
-              size *= this.globalScale;
-
-              return size;
-            })
+            .attr("font-size", (d: any) => (this.fontSizeOption == 1) ?this.scaleFontSizeForEach(d) : this.scaleFontSizeForEverything(d))
             .attr("font-weight", 600 as any)
             .attr("text-anchor", "middle")
             .style("user-select", "none")
             .style("visibility", (d) => (this.labelVisible((d as any) as ArcDatum) ? "visible" : "hidden"))
             .attr("transform", (d) => this.labelTransform((d as any) as ArcDatum))
-            .text((d) => d.data.name),
+            .text((d) => (this.fontSizeOption == 1) ?d.data.name :this.truncatedText(d)),
         (update) =>
           update
             .style("visibility", (d) => (this.labelVisible((d as any) as ArcDatum) ? "visible" : "hidden"))
@@ -559,6 +537,45 @@ export class Visual implements IVisual {
     const a = d.x1 - d.x0;
     const r = d.y1 - d.y0;
     return a > 0.03 && r > 12; // angular and radial room
+  }
+
+  private scaleFontSizeForEach(d: any): number {
+    const base = 10;                 
+    const referenceWordSize = 11;   // reference length
+    const nameLen = Math.max(1, d?.data?.name?.length || 1);
+
+    // word-length scaling (always applied)
+    const lengthScale = referenceWordSize / nameLen;
+    let size = base * lengthScale;
+
+    // usable angular width in degrees
+    const raw = d.x1 - d.x0;
+    const pad = Math.min(raw / 2, 0.003);
+    const effective = Math.max(0, raw - 2 * pad);   // radians
+    const deg = effective * 180 / Math.PI;
+
+    // if name shorter than reference AND angle <= 5°, apply angle factor
+    if (nameLen < referenceWordSize && deg <= 5) {
+      const angleFactor = deg / 5;
+      size *= angleFactor;
+    }
+
+    size *= this.globalScale;
+
+    return size;
+  }
+
+  private truncatedText(d: any): string {
+    const length = 8;
+    if (d.data.name.length <= length) return d.data.name;
+    const myTruncatedString = `${d.data.name.substring(0,length)}...`;
+    return myTruncatedString;
+  }
+
+  private scaleFontSizeForEverything(d: any): number {
+    const base = 10;                 
+
+    return base * this.globalScale;
   }
 
   private labelTransform(d: ArcDatum): string {
