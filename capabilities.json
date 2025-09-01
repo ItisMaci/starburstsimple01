@@ -1,26 +1,19 @@
 {
   "privileges": [],
   "dataRoles": [
-    { "name": "level1", "kind": "Grouping", "displayName": "Level 1 (Top)" },
-    { "name": "level2", "kind": "Grouping", "displayName": "Level 2" },
-    { "name": "level3", "kind": "Grouping", "displayName": "Level 3" },
-    { "name": "level4", "kind": "Grouping", "displayName": "Level 4" },
-    { "name": "level5", "kind": "Grouping", "displayName": "Level 5" }
+    { "name": "levelNames", "kind": "Grouping", "displayName": "Level Names" },
+    { "name": "levelKeys",  "kind": "Grouping", "displayName": "Level Keys (optional)" },
+    { "name": "measure",    "kind": "Measure",  "displayName": "Value (optional)" }
   ],
   "dataViewMappings": [
     {
-      "categorical": {
-        "categories": {
+      "table": {
+        "rows": {
           "select": [
-            { "for": { "in": "level1" } },
-            { "for": { "in": "level2" } },
-            { "for": { "in": "level3" } },
-            { "for": { "in": "level4" } },
-            { "for": { "in": "level5" } }
-          ],
-          "dataReductionAlgorithm": {
-            "top": { "count": 30000 }
-          }
+            { "for": { "in": "levelNames" } },
+            { "for": { "in": "levelKeys" } },
+            { "for": { "in": "measure" } }
+          ]
         }
       }
     }

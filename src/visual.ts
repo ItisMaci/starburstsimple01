@@ -28,11 +28,6 @@
 // visual.ts
 // Power BI Custom Visual: Sunburst (D3)
 // ------------------------------------------------------------
-// This file implements a D3 sunburst adapted from the provided
-// script, packaged as a Power BI custom visual 'visual.ts'.
-// It renders static sample data (from the prompt) so you can
-// verify layout/interaction without a data binding yet.
-// ------------------------------------------------------------
 
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 /* eslint-disable @typescript-eslint/ban-ts-comment */
@@ -47,21 +42,12 @@ import powerbi from "powerbi-visuals-api";
 import IVisual = powerbi.extensibility.visual.IVisual;
 import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
 import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
+import DataView = powerbi.DataView;
 
-type Domain = { domain_id: number; domain_name: string };
-type Ebene2 = { level_id: number; level_name: string; parent_id: number };
-type Ebene3 = { level_id: number; level_name: string; parent_id: number };
-type Ebene4 = { level_id: number; level_name: string; parent_id: number };
-
-type Raw = {
-  domains: Domain[];
-  ebene2: Ebene2[];
-  ebene3: Ebene3[];
-  ebene4: Ebene4[];
-};
-
-type Depth = 1 | 2 | 3 | 4;
-type NodeMeta = { depth: Depth };
+// -----------------------------
+// Types for sunburst data
+// -----------------------------
+type NodeMeta = { depth: number; key?: string | number };
 
 type NodeData = {
   name: string;
@@ -78,240 +64,130 @@ type SunburstNode = d3.HierarchyRectangularNode<NodeData> & {
 };
 
 // -----------------------------
-// 0) Sample Source Data (static)
+// Flat→Tree builder (arbitrary depth)
 // -----------------------------
-const raw: Raw = {
-  domains: [
-    { domain_id: 1, domain_name: "Bauen und Wohnen" },
-    { domain_id: 2, domain_name: "Bevölkerung und Gesellschaft" },
-    { domain_id: 3, domain_name: "Bildung" },
-    { domain_id: 4, domain_name: "Politik" },
-    { domain_id: 5, domain_name: "Sicherheit und Ordnung" },
-    { domain_id: 6, domain_name: "Soziales" },
-    { domain_id: 7, domain_name: "Stadtraum" },
-    { domain_id: 8, domain_name: "Umwelt" },
-    { domain_id: 9, domain_name: "Verwaltung" },
-    { domain_id: 10, domain_name: "Wirtschaft und Arbeit" }
-  ],
-  ebene2: [
-    { level_id: 1, level_name: "Bauwerke", parent_id: 1 },
-    { level_id: 2, level_name: "Einwanderung und Staatsbürgerschaft", parent_id: 2 },
-    { level_id: 3, level_name: "Natürliche Person", parent_id: 2 },
-    { level_id: 4, level_name: "Staatentabelle", parent_id: 2 },
-    { level_id: 5, level_name: "Schulen der Stadt Wien", parent_id: 3 },
-    { level_id: 6, level_name: "WiBi", parent_id: 3 },
-    { level_id: 7, level_name: "Wahlen", parent_id: 4 },
-    { level_id: 8, level_name: "Verwaltungsstrafen", parent_id: 5 },
-    { level_id: 9, level_name: "Kinder- und Jugendhilfe", parent_id: 6 },
-    { level_id: 10, level_name: "Adressen", parent_id: 7 },
-    { level_id: 11, level_name: "Immobilienmanagement", parent_id: 7 },
-    { level_id: 12, level_name: "Immobilienverwaltung MA10", parent_id: 7 },
-    { level_id: 13, level_name: "Internet of Things (IoT)", parent_id: 7 },
-    { level_id: 14, level_name: "Inventar im öffentlichen Raum", parent_id: 7 },
-    { level_id: 15, level_name: "MA34", parent_id: 7 },
-    { level_id: 16, level_name: "Vermessung-Geobasis", parent_id: 7 },
-    { level_id: 17, level_name: "Öffentliche Beleuchtung und Verkehrslichtsignalanlagen", parent_id: 7 },
-    { level_id: 18, level_name: "Österreichisches Adressregister", parent_id: 7 },
-    { level_id: 19, level_name: "Abfallsammlung", parent_id: 8 },
-    { level_id: 20, level_name: "Energie", parent_id: 8 },
-    { level_id: 21, level_name: "Klimaschutz", parent_id: 8 },
-    { level_id: 22, level_name: "Bildung und Jugend", parent_id: 9 },
-    { level_id: 23, level_name: "Elektronische Aktenführung", parent_id: 9 },
-    { level_id: 24, level_name: "Finanzen", parent_id: 9 },
-    { level_id: 25, level_name: "Förderungen", parent_id: 9 },
-    { level_id: 26, level_name: "IKT Basis", parent_id: 9 },
-    { level_id: 27, level_name: "Organisation", parent_id: 9 },
-    { level_id: 28, level_name: "Personal", parent_id: 9 },
-    { level_id: 29, level_name: "Produkt- und Leistungsrechnung", parent_id: 9 },
-    { level_id: 30, level_name: "Wien Leuchtet", parent_id: 9 },
-    { level_id: 31, level_name: "Gewerberecht und gewerbliche Betriebsanlagenverfahren", parent_id: 10 },
-    { level_id: 32, level_name: "Unternehmensregister", parent_id: 10 }
-  ],
-  ebene3: [
-    { level_id: 1, level_name: "Anlieferungsdaten Gebäude", parent_id: 1 },
-    { level_id: 2, level_name: "Bauverfahren", parent_id: 1 },
-    { level_id: 3, level_name: "Bauwerke Bestand", parent_id: 1 },
-    { level_id: 4, level_name: "Bauwerke gemeinsame Definitionen", parent_id: 1 },
-    { level_id: 5, level_name: "Flächen und Mieten", parent_id: 1 },
-    { level_id: 6, level_name: "MA36", parent_id: 1 },
-    { level_id: 7, level_name: "MA37", parent_id: 1 },
-    { level_id: 8, level_name: "Staatsbürgerschaft", parent_id: 2 },
-    { level_id: 9, level_name: "Zentrales Melderegister", parent_id: 3 },
-    { level_id: 10, level_name: "Zentrales Personenstandsregister", parent_id: 3 },
-    { level_id: 11, level_name: "Betrieb Wiener Schulen", parent_id: 5 },
-    { level_id: 12, level_name: "Schulgebäude und -objekte", parent_id: 5 },
-    { level_id: 13, level_name: "Schulpersonalia", parent_id: 5 },
-    { level_id: 14, level_name: "Schüler*innen", parent_id: 5 },
-    { level_id: 15, level_name: "Vorhaben (Schulen)", parent_id: 5 },
-    { level_id: 16, level_name: "Parkraumüberwachung Außendienst", parent_id: 8 },
-    { level_id: 17, level_name: "VWST Aufgaben", parent_id: 8 },
-    { level_id: 18, level_name: "VWST Basis Daten Verlauf", parent_id: 8 },
-    { level_id: 19, level_name: "VWST Buchungscontainer", parent_id: 8 },
-    { level_id: 20, level_name: "VWST Forderungsbewegung", parent_id: 8 },
-    { level_id: 21, level_name: "(Test) Soziale Arbeit", parent_id: 9 },
-    { level_id: 22, level_name: "Genehmigung Kindertagesbetreuung", parent_id: 9 },
-    { level_id: 23, level_name: "Psychologischer Dienst und Inklusion", parent_id: 9 },
-    { level_id: 24, level_name: "Rechtsvertretung", parent_id: 9 },
-    { level_id: 25, level_name: "Soziale Arbeit", parent_id: 9 },
-    { level_id: 26, level_name: "Sozialpädagogik", parent_id: 9 },
-    { level_id: 27, level_name: "Aktive Liegenschaftsverwaltung", parent_id: 11 },
-    { level_id: 28, level_name: "Behördliche Vorgänge", parent_id: 11 },
-    { level_id: 29, level_name: "Erwerb und Veräußerung von Liegenschaften", parent_id: 11 },
-    { level_id: 30, level_name: "Grundbuchsaktivitäten", parent_id: 11 },
-    { level_id: 31, level_name: "Immobilienstrategie", parent_id: 11 },
-    { level_id: 32, level_name: "Kleingarten", parent_id: 11 },
-    { level_id: 33, level_name: "Unterstützungsleistungen", parent_id: 11 },
-    { level_id: 34, level_name: "Zentrale Evidenz", parent_id: 11 },
-    { level_id: 35, level_name: "Verkehrszeichen & Wegweiser", parent_id: 14 },
-    { level_id: 36, level_name: "Werbeträger", parent_id: 14 },
-    { level_id: 37, level_name: "Elektrotechnische Assets", parent_id: 17 },
-    { level_id: 38, level_name: "Mechanische Assets", parent_id: 17 },
-    { level_id: 39, level_name: "Verkehrslichtsignalanlagen", parent_id: 17 },
-    { level_id: 40, level_name: "Fahrzeugverwaltung", parent_id: 19 },
-    { level_id: 41, level_name: "Leitstand Altwarenverkauf", parent_id: 19 },
-    { level_id: 42, level_name: "Leitstand Mistplätze", parent_id: 19 },
-    { level_id: 43, level_name: "Energie-Geodaten", parent_id: 20 },
-    { level_id: 44, level_name: "Energiedatenmanagement", parent_id: 20 },
-    { level_id: 45, level_name: "Erzeugungsanlagen in Wien", parent_id: 20 },
-    { level_id: 46, level_name: "SECAP", parent_id: 21 },
-    { level_id: 47, level_name: "Wetter", parent_id: 21 },
-    { level_id: 48, level_name: "Förderungen Bildung und Jugend", parent_id: 22 },
-    { level_id: 49, level_name: "Organisatorische Einheiten", parent_id: 23 },
-    { level_id: 50, level_name: "Anlagenverwaltung", parent_id: 24 },
-    { level_id: 51, level_name: "Beteiligungsmanagement", parent_id: 24 },
-    { level_id: 52, level_name: "Darlehensverwaltung", parent_id: 24 },
-    { level_id: 53, level_name: "Haftungen", parent_id: 24 },
-    { level_id: 54, level_name: "Kassenverwaltung", parent_id: 24 },
-    { level_id: 55, level_name: "Leasing", parent_id: 24 },
-    { level_id: 56, level_name: "Marktfolge", parent_id: 24 },
-    { level_id: 57, level_name: "Weitere Ansatzbeziehungen", parent_id: 24 },
-    { level_id: 58, level_name: "Weitere Buchungskreisbeziehungen", parent_id: 24 },
-    { level_id: 59, level_name: "Weitere Gruppenbeziehungen", parent_id: 24 },
-    { level_id: 60, level_name: "Weitere Sachkontenbeziehungen", parent_id: 24 },
-    { level_id: 61, level_name: "Beteiligte Personen", parent_id: 25 },
-    { level_id: 62, level_name: "Fördersummen", parent_id: 25 },
-    { level_id: 63, level_name: "Geförderte Wohneinheiten MA 50", parent_id: 25 },
-    { level_id: 64, level_name: "Transparenzdatenbank", parent_id: 25 },
-    { level_id: 65, level_name: "Wohngeld", parent_id: 25 },
-    { level_id: 66, level_name: "Anforderungen", parent_id: 26 },
-    { level_id: 67, level_name: "Arbeitssammlung", parent_id: 26 },
-    { level_id: 68, level_name: "Berechtigungsvergabe EDWH", parent_id: 26 },
-    { level_id: 69, level_name: "Fachliche Metadaten", parent_id: 26 },
-    { level_id: 70, level_name: "Gewerbeinformationen", parent_id: 26 },
-    { level_id: 71, level_name: "Identity Management (IKTORG)", parent_id: 26 },
-    { level_id: 72, level_name: "MA01 Leistungsabrechnung", parent_id: 26 },
-    { level_id: 73, level_name: "MA01 interne Leistungen & Services", parent_id: 26 },
-    { level_id: 74, level_name: "Metrik Vault", parent_id: 26 },
-    { level_id: 75, level_name: "Nutzungs-Auswertungen", parent_id: 26 },
-    { level_id: 76, level_name: "Qualitätssicherung im EDWH", parent_id: 26 },
-    { level_id: 77, level_name: "Sag's Wien App", parent_id: 26 },
-    { level_id: 78, level_name: "Telefonabrechnung", parent_id: 26 },
-    { level_id: 79, level_name: "Vorhabens- und Projektabwicklung", parent_id: 26 },
-    { level_id: 80, level_name: "Personalaufwand", parent_id: 28 },
-    { level_id: 81, level_name: "Steuertabellen - Bruttobezugsliste", parent_id: 28 },
-    { level_id: 82, level_name: "E-Mobilität Standards", parent_id: 30 },
-    { level_id: 83, level_name: "Verkehrslichtsignalanlagen  (Verwaltung)", parent_id: 30 },
-    { level_id: 84, level_name: "Öffentliche Beleuchtung (Verwaltung)", parent_id: 30 },
-    { level_id: 85, level_name: "Gewerbeverfahren", parent_id: 31 }
-  ],
-  ebene4: [
-    { level_id: 1, level_name: "Weitere Schülerattribute", parent_id: 14 },
-    { level_id: 2, level_name: "Vermögensverwaltung", parent_id: 24 },
-    { level_id: 3, level_name: "0 - Konfiguration", parent_id: 62 },
-    { level_id: 4, level_name: "1 - Standarddienststellen", parent_id: 62 },
-    { level_id: 5, level_name: "2 - MA 50 - Wohnbauförderungen", parent_id: 62 },
-    { level_id: 6, level_name: "3 - MA 11 - Essenszuschüsse", parent_id: 62 },
-    { level_id: 7, level_name: "80 - Förderfallstatus", parent_id: 62 },
-    { level_id: 8, level_name: "81 - Wirkungsorientierte Kennzahlen", parent_id: 62 },
-    { level_id: 9, level_name: "99 - Dimensionen", parent_id: 62 },
-    { level_id: 10, level_name: "Auszahlungsabwicklung (Wohngeld)", parent_id: 65 },
-    { level_id: 11, level_name: "Beteiligte Personen (Wohngeld)", parent_id: 65 },
-    { level_id: 12, level_name: "Beschaffungsaufträge & Bestellanforderungen", parent_id: 66 },
-    { level_id: 13, level_name: "Katalogsysteme", parent_id: 66 },
-    { level_id: 14, level_name: "Vendormanagement", parent_id: 66 },
-    { level_id: 15, level_name: "Vorhaben", parent_id: 66 },
-    { level_id: 16, level_name: "Dienstpostensteuerung MA 01", parent_id: 67 },
-    { level_id: 17, level_name: "Allgemeine Datenobjekte", parent_id: 69 },
-    { level_id: 18, level_name: "DX Organisation", parent_id: 69 },
-    { level_id: 19, level_name: "Datennutzungskatalog", parent_id: 69 },
-    { level_id: 20, level_name: "Fachdatenmodell", parent_id: 69 },
-    { level_id: 21, level_name: "Kennzahlenkatalog", parent_id: 69 },
-    { level_id: 22, level_name: "Referenzdatenmodell", parent_id: 69 },
-    { level_id: 23, level_name: "Business Servicekatalog", parent_id: 73 },
-    { level_id: 24, level_name: "Finanzmanagement MA01", parent_id: 73 },
-    { level_id: 25, level_name: "Incidents", parent_id: 73 },
-    { level_id: 26, level_name: "Interne Revision", parent_id: 73 },
-    { level_id: 27, level_name: "Wahlkartenmonitoring", parent_id: 73 },
-    { level_id: 28, level_name: "E-Control Ladestellenverzeichnis", parent_id: 82 },
-    { level_id: 29, level_name: "EV Charging Station", parent_id: 82 },
-    { level_id: 30, level_name: "Open Data Hub", parent_id: 82 },
-    { level_id: 31, level_name: "WIEN ENERGIE E-LADESTELLE OGD", parent_id: 82 },
-    { level_id: 32, level_name: "Budgetär", parent_id: 84 },
-    { level_id: 33, level_name: "EAZV", parent_id: 84 },
-    { level_id: 34, level_name: "Einbautenabfrage MA 33", parent_id: 84 },
-    { level_id: 35, level_name: "Mitbenutzung MA 33", parent_id: 84 },
-    { level_id: 36, level_name: "Protokoll (Wien leuchtet)", parent_id: 84 },
-    { level_id: 37, level_name: "Auslaufende Gewerbefunktionen", parent_id: 85 },
-    { level_id: 38, level_name: "Ausländische Gewerbeinhaber*innen", parent_id: 85 },
-    { level_id: 39, level_name: "Zentrale Referenzen (Gewerbeverfahren)", parent_id: 85 }
-  ]
+type Keyish = string | number;
+type Maybe<T> = T | null | undefined;
+
+type FlatRow = {
+  levelNames: (Maybe<string>)[];
+  levelKeys?: (Maybe<Keyish>)[];
+  measure?: number;
 };
 
-// -----------------------------
-// 1) Build hierarchy
-// -----------------------------
-function buildHierarchy(rawData: Raw): NodeData {
-  const e4ByParent = new Map<number, Ebene4[]>();
-  for (const n of rawData.ebene4) {
-    if (!e4ByParent.has(n.parent_id)) e4ByParent.set(n.parent_id, []);
-    e4ByParent.get(n.parent_id)!.push(n);
-  }
+function buildHierarchyFromFlat(rows: FlatRow[], maxDepth: number): NodeData {
+  const root: NodeData = { name: "Wien", children: [] };
+  const mapsPerDepth: Map<string, NodeData>[] = Array.from(
+    { length: maxDepth },
+    () => new Map<string, NodeData>()
+  );
 
-  const e3ByParent = new Map<number, Ebene3[]>();
-  for (const n of rawData.ebene3) {
-    if (!e3ByParent.has(n.parent_id)) e3ByParent.set(n.parent_id, []);
-    e3ByParent.get(n.parent_id)!.push(n);
-  }
+  for (const r of rows) {
+    let parent = root;
+    let pathKey = "";
 
-  const e2ByDomain = new Map<number, Ebene2[]>();
-  for (const n of rawData.ebene2) {
-    if (!e2ByDomain.has(n.parent_id)) e2ByDomain.set(n.parent_id, []);
-    e2ByDomain.get(n.parent_id)!.push(n);
-  }
+    for (let d = 0; d < maxDepth; d++) {
+      const name = r.levelNames[d];
+      if (!name) break;
 
-  const domains: NodeData[] = rawData.domains.map((d): NodeData => {
-    const e2s = e2ByDomain.get(d.domain_id) ?? [];
-    const childrenLvl2: NodeData[] = e2s.map((l2): NodeData => {
-      const e3s = e3ByParent.get(l2.level_id) ?? [];
-      const childrenLvl3: NodeData[] = e3s.map((l3): NodeData => {
-        const e4s = e4ByParent.get(l3.level_id) ?? [];
-        const childrenLvl4: NodeData[] = e4s.map((l4): NodeData => ({
-          name: l4.level_name,
-          value: 1,
-          __meta: { depth: 4 }
-        }));
-        if (childrenLvl4.length === 0) {
-          return { name: l3.level_name, value: 1, __meta: { depth: 3 } };
-        }
-        return { name: l3.level_name, children: childrenLvl4, __meta: { depth: 3 } };
-      });
-      if (childrenLvl3.length === 0) {
-        return { name: l2.level_name, value: 1, __meta: { depth: 2 } };
+      const keyPart =
+        (r.levelKeys && r.levelKeys[d] != null ? String(r.levelKeys[d]) : name).trim();
+
+      pathKey = pathKey ? `${pathKey}¦${keyPart}` : keyPart;
+
+      const map = mapsPerDepth[d];
+      let node = map.get(pathKey);
+      if (!node) {
+        node = { name, children: [], __meta: { depth: d + 1 } };
+        if (r.levelKeys && r.levelKeys[d] != null) node.__meta!.key = r.levelKeys[d]!;
+        map.set(pathKey, node);
+        (parent.children ??= []).push(node);
       }
-      return { name: l2.level_name, children: childrenLvl3, __meta: { depth: 2 } };
-    });
-
-    if (childrenLvl2.length === 0) {
-      return { name: d.domain_name, value: 1, __meta: { depth: 1 } };
+      parent = node;
     }
-    return { name: d.domain_name, children: childrenLvl2, __meta: { depth: 1 } };
-  });
 
-  return { name: "Wien", children: domains };
+    // accumulate value on leaf (default 1 per row)
+    if (parent && (!parent.children || parent.children.length === 0)) {
+      parent.value = (parent.value ?? 0) + (r.measure ?? 1);
+    }
+  }
+
+  // ensure leaves have a value
+  (function finalize(n: NodeData) {
+    if (!n.children || n.children.length === 0) {
+      if (n.value == null) n.value = 1;
+      return;
+    }
+    for (const c of n.children) finalize(c);
+  })(root);
+
+  return root;
+}
+
+// -----------------------------
+// Power BI data extraction
+// -----------------------------
+function colIndexesByRole(tableCols: powerbi.DataViewMetadataColumn[], role: string): number[] {
+  const idx: number[] = [];
+  tableCols.forEach((c, i) => {
+    if (c && c.roles && (c.roles as any)[role]) idx.push(i);
+  });
+  return idx;
+}
+
+function toStr(v: any): string | null {
+  if (v === null || v === undefined) return null;
+  return String(v);
+}
+function toNum(v: any): number | undefined {
+  if (v === null || v === undefined || v === "") return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function buildRowsFromDataView(dv: DataView): { rows: FlatRow[]; maxDepth: number } {
+  const out: FlatRow[] = [];
+
+  // Prefer table: respects top→bottom field order as dropped by the user
+  const table = dv.table;
+  if (table?.rows?.length && table.columns?.length) {
+    const nameIdx = colIndexesByRole(table.columns, "levelNames");
+    const keyIdx  = colIndexesByRole(table.columns, "levelKeys");
+    const measIdx = colIndexesByRole(table.columns, "measure");
+    const maxDepth = nameIdx.length;
+
+    for (const r of table.rows) {
+      const levelNames = nameIdx.map(i => toStr(r[i]));
+      const levelKeys  = keyIdx.length ? keyIdx.map(i => (r[i] as Keyish | null)) : undefined;
+      const measure    = measIdx.length ? toNum(r[measIdx[0]]) : undefined;
+      out.push({ levelNames, levelKeys, measure });
+    }
+    return { rows: out, maxDepth };
+  }
+
+  // Fallback: categorical (if needed)
+  const cat = dv.categorical;
+  if (cat?.categories?.length) {
+    const nameCats = cat.categories.filter(c => (c.source?.roles as any)?.levelNames);
+    const keyCats  = cat.categories.filter(c => (c.source?.roles as any)?.levelKeys);
+    const measVals = cat.values?.filter(v => (v.source?.roles as any)?.measure) ?? [];
+    const len = nameCats[0]?.values?.length ?? 0;
+    const maxDepth = nameCats.length;
+
+    for (let i = 0; i < len; i++) {
+      const levelNames = nameCats.map(c => toStr(c.values[i]));
+      const levelKeys  = keyCats.length ? keyCats.map(c => c.values[i] as Keyish | null) : undefined;
+      const measure    = measVals.length ? toNum(measVals[0].values[i]) : undefined;
+      out.push({ levelNames, levelKeys, measure });
+    }
+    return { rows: out, maxDepth };
+  }
+
+  return { rows: out, maxDepth: 0 };
 }
 
 // -------------------------------------------
-// 2) Visual class (rendering & interactions)
+// Visual class (rendering & interactions)
 // -------------------------------------------
 export class Visual implements IVisual {
   private rootEl: HTMLElement;
@@ -418,8 +294,18 @@ export class Visual implements IVisual {
     // set width and height and viewbox
     this.svg.attr("width", W).attr("height", H).attr("viewBox", [-W / 2, -H / 2, W, H].join(" "));
 
-    // Build data (static for now)
-    const data: NodeData = buildHierarchy(raw);
+    // -----------------------------
+    // Build data from Power BI fields
+    // -----------------------------
+    const dv = options.dataViews?.[0];
+    let data: NodeData = { name: "Wien", children: [] };
+
+    if (dv) {
+      const { rows, maxDepth } = buildRowsFromDataView(dv);
+      if (rows.length && maxDepth > 0) {
+        data = buildHierarchyFromFlat(rows, maxDepth);
+      }
+    }
 
     // Build hierarchy & partition
     const root = d3
@@ -508,18 +394,18 @@ export class Visual implements IVisual {
             .append("text")
             .attr("dy", "0.32em")
             .attr("fill", "#0f172a")
-            .attr("font-size", (d: any) => (this.fontSizeOption == 1) ?this.scaleFontSizeForEach(d) : this.scaleFontSizeForEverything(d))
+            .attr("font-size", (d: any) => (this.fontSizeOption == 1) ? this.scaleFontSizeForEach(d) : this.scaleFontSizeForEverything(d))
             .attr("font-weight", 600 as any)
             .attr("text-anchor", "middle")
             .style("user-select", "none")
             .style("visibility", (d) => (this.labelVisible((d as any) as ArcDatum) ? "visible" : "hidden"))
             .attr("transform", (d) => this.labelTransform((d as any) as ArcDatum))
-            .text((d) => (this.fontSizeOption == 1) ?d.data.name :this.truncatedText(d)),
+            .text((d) => (this.fontSizeOption == 1) ? d.data.name : this.truncatedText(d)),
         (update) =>
           update
             .style("visibility", (d) => (this.labelVisible((d as any) as ArcDatum) ? "visible" : "hidden"))
             .attr("transform", (d) => this.labelTransform((d as any) as ArcDatum))
-            .text((d) => (this.fontSizeOption == 1) ?d.data.name :this.truncatedText(d)),
+            .text((d) => (this.fontSizeOption == 1) ? d.data.name : this.truncatedText(d)),
         (exit) => exit.remove()
       );
 
@@ -540,7 +426,7 @@ export class Visual implements IVisual {
   }
 
   private scaleFontSizeForEach(d: any): number {
-    const base = 10;                 
+    const base = 10;
     const referenceWordSize = 11;   // reference length
     const nameLen = Math.max(1, d?.data?.name?.length || 1);
 
@@ -572,9 +458,8 @@ export class Visual implements IVisual {
     return myTruncatedString;
   }
 
-  private scaleFontSizeForEverything(d: any): number {
-    const base = 10;                 
-
+  private scaleFontSizeForEverything(_d: any): number {
+    const base = 10;
     return base * this.globalScale;
   }
 
