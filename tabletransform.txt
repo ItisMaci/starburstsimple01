@@ -1,0 +1,72 @@
+let
+    // --- 0) Source queries (rename here if your query names differ) ---
+    Domain = Domain,
+    Level2 = Level2,
+    Level3 = Level3,
+    Level4 = Level4,
+
+    // --- 1) Normalize empty strings -> null (stop points) ---
+    DomainN = Table.TransformColumns(
+        Domain,
+        {{"domain_name", each if _ = "" then null else _, type text}}
+    ),
+    L2N = Table.TransformColumns(
+        Level2,
+        {{"level_names", each if _ = "" then null else _, type text}}
+    ),
+    L3N = Table.TransformColumns(
+        Level3,
+        {{"level_names", each if _ = "" then null else _, type text}}
+    ),
+    L4N = Table.TransformColumns(
+        Level4,
+        {{"level_names", each if _ = "" then null else _, type text}}
+    ),
+
+    // --- 2) Left joins top-down (preserve parents without children) ---
+    // Domain.domain_id -> Level2.parent_id
+    Join12 = Table.NestedJoin(DomainN, {"domain_id"}, L2N, {"parent_id"}, "L2", JoinKind.LeftOuter),
+    Exp12  = Table.ExpandTableColumn(
+                Join12, "L2",
+                {"level_id","level_names"},
+                {"Level2Id","Level2Name"}
+            ),
+
+    // Level2.level_id -> Level3.parent_id
+    Join23 = Table.NestedJoin(Exp12, {"Level2Id"}, L3N, {"parent_id"}, "L3", JoinKind.LeftOuter),
+    Exp23  = Table.ExpandTableColumn(
+                Join23, "L3",
+                {"level_id","level_names"},
+                {"Level3Id","Level3Name"}
+            ),
+
+    // Level3.level_id -> Level4.parent_id
+    Join34 = Table.NestedJoin(Exp23, {"Level3Id"}, L4N, {"parent_id"}, "L4", JoinKind.LeftOuter),
+    Exp34  = Table.ExpandTableColumn(
+                Join34, "L4",
+                {"level_id","level_names"},
+                {"Level4Id","Level4Name"}
+            ),
+
+    // --- 3) Keep only the name columns the visual binds to ---
+    Scaffold = Table.SelectColumns(
+        Exp34,
+        {"domain_name","Level2Name","Level3Name","Level4Name"}
+    ),
+
+    // Rename to Level1..Level4 for clarity in the visual
+    Renamed = Table.RenameColumns(
+        Scaffold,
+        {
+            {"domain_name","Level1Name"},
+            {"Level2Name","Level2Name"},
+            {"Level3Name","Level3Name"},
+            {"Level4Name","Level4Name"}
+        }
+    ),
+
+    // --- 4) Remove duplicate paths if any ---
+    ScaffoldDistinct = Table.Distinct(Renamed)
+
+in
+    ScaffoldDistinct
