@@ -412,7 +412,7 @@ export class Visual implements IVisual {
 
     // set base R and compute global scale relative to that baseline
     if (this.baseR == null) this.baseR = R;
-    R *= 2;
+    R *= 1;
     this.globalScale = R / this.baseR;
 
     // set width and height and viewbox
@@ -519,7 +519,7 @@ export class Visual implements IVisual {
           update
             .style("visibility", (d) => (this.labelVisible((d as any) as ArcDatum) ? "visible" : "hidden"))
             .attr("transform", (d) => this.labelTransform((d as any) as ArcDatum))
-            .text((d) => d.data.name),
+            .text((d) => (this.fontSizeOption == 1) ?d.data.name :this.truncatedText(d)),
         (exit) => exit.remove()
       );
 
