@@ -1,34 +1,9 @@
 /*
 *  Power BI Visual CLI
-*
-*  Copyright (c) Microsoft Corporation
-*  All rights reserved.
 *  MIT License
-*
-*  Permission is hereby granted, free of charge, to any person obtaining a copy
-*  of this software and associated documentation files (the ""Software""), to deal
-*  in the Software without restriction, including without limitation the rights
-*  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-*  copies of the Software, and to permit persons to whom the Software is
-*  furnished to do so, subject to the following conditions:
-*
-*  The above copyright notice and this permission notice shall be included in
-*  all copies or substantial portions of the Software.
-*
-*  THE SOFTWARE IS PROVIDED *AS IS*, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-*  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-*  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-*  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-*  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-*  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-*  THE SOFTWARE.
 */
 
 // src/visual.ts
-// visual.ts
-// Power BI Custom Visual: Sunburst (D3)
-// ------------------------------------------------------------
-
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 
@@ -42,12 +17,21 @@ import powerbi from "powerbi-visuals-api";
 import IVisual = powerbi.extensibility.visual.IVisual;
 import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
 import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
-import DataView = powerbi.DataView;
 
-// -----------------------------
-// Types for sunburst data
-// -----------------------------
-type NodeMeta = { depth: number; key?: string | number };
+type Domain = { domain_id: number; domain_name: string };
+type Ebene2 = { level_id: number; level_name: string; parent_id: number };
+type Ebene3 = { level_id: number; level_name: string; parent_id: number };
+type Ebene4 = { level_id: number; level_name: string; parent_id: number };
+
+type Raw = {
+  domains: Domain[];
+  ebene2: Ebene2[];
+  ebene3: Ebene3[];
+  ebene4: Ebene4[];
+};
+
+type Depth = 1 | 2 | 3 | 4;
+type NodeMeta = { depth: Depth };
 
 type NodeData = {
   name: string;
@@ -64,130 +48,219 @@ type SunburstNode = d3.HierarchyRectangularNode<NodeData> & {
 };
 
 // -----------------------------
-// Flat→Tree builder (arbitrary depth)
+// 1) Build hierarchy (UNCHANGED)
 // -----------------------------
-type Keyish = string | number;
-type Maybe<T> = T | null | undefined;
-
-type FlatRow = {
-  levelNames: (Maybe<string>)[];
-  levelKeys?: (Maybe<Keyish>)[];
-  measure?: number;
-};
-
-function buildHierarchyFromFlat(rows: FlatRow[], maxDepth: number): NodeData {
-  const root: NodeData = { name: "Wien", children: [] };
-  const mapsPerDepth: Map<string, NodeData>[] = Array.from(
-    { length: maxDepth },
-    () => new Map<string, NodeData>()
-  );
-
-  for (const r of rows) {
-    let parent = root;
-    let pathKey = "";
-
-    for (let d = 0; d < maxDepth; d++) {
-      const name = r.levelNames[d];
-      if (!name) break;
-
-      const keyPart =
-        (r.levelKeys && r.levelKeys[d] != null ? String(r.levelKeys[d]) : name).trim();
-
-      pathKey = pathKey ? `${pathKey}¦${keyPart}` : keyPart;
-
-      const map = mapsPerDepth[d];
-      let node = map.get(pathKey);
-      if (!node) {
-        node = { name, children: [], __meta: { depth: d + 1 } };
-        if (r.levelKeys && r.levelKeys[d] != null) node.__meta!.key = r.levelKeys[d]!;
-        map.set(pathKey, node);
-        (parent.children ??= []).push(node);
-      }
-      parent = node;
-    }
-
-    // accumulate value on leaf (default 1 per row)
-    if (parent && (!parent.children || parent.children.length === 0)) {
-      parent.value = (parent.value ?? 0) + (r.measure ?? 1);
-    }
-  }
-
-  // ensure leaves have a value
-  (function finalize(n: NodeData) {
-    if (!n.children || n.children.length === 0) {
-      if (n.value == null) n.value = 1;
-      return;
-    }
-    for (const c of n.children) finalize(c);
-  })(root);
-
-  return root;
-}
-
-// -----------------------------
-// Power BI data extraction
-// -----------------------------
-function colIndexesByRole(tableCols: powerbi.DataViewMetadataColumn[], role: string): number[] {
-  const idx: number[] = [];
-  tableCols.forEach((c, i) => {
-    if (c && c.roles && (c.roles as any)[role]) idx.push(i);
+function buildHierarchy(rawData: Raw): NodeData {
+  console.log("[Sunburst] buildHierarchy: input sizes", {
+    domains: rawData.domains.length,
+    ebene2: rawData.ebene2.length,
+    ebene3: rawData.ebene3.length,
+    ebene4: rawData.ebene4.length
   });
-  return idx;
-}
 
-function toStr(v: any): string | null {
-  if (v === null || v === undefined) return null;
-  return String(v);
-}
-function toNum(v: any): number | undefined {
-  if (v === null || v === undefined || v === "") return undefined;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : undefined;
-}
-
-function buildRowsFromDataView(dv: DataView): { rows: FlatRow[]; maxDepth: number } {
-  const out: FlatRow[] = [];
-
-  // Prefer table: respects top→bottom field order as dropped by the user
-  const table = dv.table;
-  if (table?.rows?.length && table.columns?.length) {
-    const nameIdx = colIndexesByRole(table.columns, "levelNames");
-    const keyIdx  = colIndexesByRole(table.columns, "levelKeys");
-    const measIdx = colIndexesByRole(table.columns, "measure");
-    const maxDepth = nameIdx.length;
-
-    for (const r of table.rows) {
-      const levelNames = nameIdx.map(i => toStr(r[i]));
-      const levelKeys  = keyIdx.length ? keyIdx.map(i => (r[i] as Keyish | null)) : undefined;
-      const measure    = measIdx.length ? toNum(r[measIdx[0]]) : undefined;
-      out.push({ levelNames, levelKeys, measure });
-    }
-    return { rows: out, maxDepth };
+  const e4ByParent = new Map<number, Ebene4[]>();
+  for (const n of rawData.ebene4) {
+    if (!e4ByParent.has(n.parent_id)) e4ByParent.set(n.parent_id, []);
+    e4ByParent.get(n.parent_id)!.push(n);
   }
 
-  // Fallback: categorical (if needed)
-  const cat = dv.categorical;
-  if (cat?.categories?.length) {
-    const nameCats = cat.categories.filter(c => (c.source?.roles as any)?.levelNames);
-    const keyCats  = cat.categories.filter(c => (c.source?.roles as any)?.levelKeys);
-    const measVals = cat.values?.filter(v => (v.source?.roles as any)?.measure) ?? [];
-    const len = nameCats[0]?.values?.length ?? 0;
-    const maxDepth = nameCats.length;
-
-    for (let i = 0; i < len; i++) {
-      const levelNames = nameCats.map(c => toStr(c.values[i]));
-      const levelKeys  = keyCats.length ? keyCats.map(c => c.values[i] as Keyish | null) : undefined;
-      const measure    = measVals.length ? toNum(measVals[0].values[i]) : undefined;
-      out.push({ levelNames, levelKeys, measure });
-    }
-    return { rows: out, maxDepth };
+  const e3ByParent = new Map<number, Ebene3[]>();
+  for (const n of rawData.ebene3) {
+    if (!e3ByParent.has(n.parent_id)) e3ByParent.set(n.parent_id, []);
+    e3ByParent.get(n.parent_id)!.push(n);
   }
 
-  return { rows: out, maxDepth: 0 };
+  const e2ByDomain = new Map<number, Ebene2[]>();
+  for (const n of rawData.ebene2) {
+    if (!e2ByDomain.has(n.parent_id)) e2ByDomain.set(n.parent_id, []);
+    e2ByDomain.get(n.parent_id)!.push(n);
+  }
+
+  const domains: NodeData[] = rawData.domains.map((d): NodeData => {
+    const e2s = e2ByDomain.get(d.domain_id) ?? [];
+    const childrenLvl2: NodeData[] = e2s.map((l2): NodeData => {
+      const e3s = e3ByParent.get(l2.level_id) ?? [];
+      const childrenLvl3: NodeData[] = e3s.map((l3): NodeData => {
+        const e4s = e4ByParent.get(l3.level_id) ?? [];
+        const childrenLvl4: NodeData[] = e4s.map((l4): NodeData => ({
+          name: l4.level_name,
+          value: 1,
+          __meta: { depth: 4 }
+        }));
+        if (childrenLvl4.length === 0) {
+          return { name: l3.level_name, value: 1, __meta: { depth: 3 } };
+        }
+        return { name: l3.level_name, children: childrenLvl4, __meta: { depth: 3 } };
+      });
+      if (childrenLvl3.length === 0) {
+        return { name: l2.level_name, value: 1, __meta: { depth: 2 } };
+      }
+      return { name: l2.level_name, children: childrenLvl3, __meta: { depth: 2 } };
+    });
+
+    if (childrenLvl2.length === 0) {
+      return { name: d.domain_name, value: 1, __meta: { depth: 1 } };
+    }
+    return { name: d.domain_name, children: childrenLvl2, __meta: { depth: 1 } };
+  });
+
+  const out = { name: "Wien", children: domains };
+  console.log("[Sunburst] buildHierarchy: domains tree count", domains.length);
+  return out;
+}
+
+// -----------------------------
+// 1.5) Table→Raw extractor (debug-heavy)
+// -----------------------------
+function extractRawFromTable(dv: powerbi.DataView): Raw {
+  const empty: Raw = { domains: [], ebene2: [], ebene3: [], ebene4: [] };
+  const t = dv.table;
+
+  if (!t) {
+    console.warn("[Sunburst] extractRawFromTable: no table dataview present");
+    return empty;
+  }
+  if (!t.rows?.length || !t.columns?.length) {
+    console.warn("[Sunburst] extractRawFromTable: empty table (rows/columns missing)", {
+      rows: t.rows?.length ?? 0,
+      cols: t.columns?.length ?? 0
+    });
+    return empty;
+  }
+
+  console.log("[Sunburst] Table columns:", t.columns.map(c => ({
+    displayName: c.displayName,
+    queryName: c.queryName,
+    type: (c.type && (c.type as any).category) || undefined
+  })));
+
+  const cols = t.columns;
+  const norm = (s?: string) => (s ?? "").toLowerCase();
+  const findIdx = (patterns: readonly RegExp[]): number => {
+    for (let i = 0; i < cols.length; i++) {
+      const dn = norm(cols[i].displayName);
+      const qn = norm(cols[i].queryName);
+      if (patterns.some((p) => p.test(dn) || p.test(qn))) return i;
+    }
+    return -1;
+  };
+  const toNum = (v: any): number | null => {
+    if (v === null || v === undefined || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const toStr = (v: any): string | null => (v === null || v === undefined ? null : String(v));
+
+  const p = {
+    domain_id: [/^domain[_\s]?id$/i, /\.domain[_\s]?id$/i] as const,
+    domain_name: [/^domain[_\s]?name$/i, /\.domain[_\s]?name$/i] as const,
+
+    e2_id: [/^(e2|ebene2|level2|l2)[_\s]?id$/i, /\.((e2|ebene2|level2|l2)[_\s]?id)$/i] as const,
+    e2_name: [/^(e2|ebene2|level2|l2).*(name|level[_\s]?name)$/i] as const,
+    e2_parent: [/^(e2|ebene2|level2|l2).*(parent[_\s]?id|parent|domain[_\s]?id)$/i] as const,
+
+    e3_id: [/^(e3|ebene3|level3|l3)[_\s]?id$/i] as const,
+    e3_name: [/^(e3|ebene3|level3|l3).*(name|level[_\s]?name)$/i] as const,
+    e3_parent: [/^(e3|ebene3|level3|l3).*(parent[_\s]?id|parent|level2|l2|e2).*$/i] as const,
+
+    e4_id: [/^(e4|ebene4|level4|l4)[_\s]?id$/i] as const,
+    e4_name: [/^(e4|ebene4|level4|l4).*(name|level[_\s]?name)$/i] as const,
+    e4_parent: [/^(e4|ebene4|level4|l4).*(parent[_\s]?id|parent|level3|l3|e3).*$/i] as const
+  };
+
+  const idx = {
+    domain_id: findIdx(p.domain_id),
+    domain_name: findIdx(p.domain_name),
+
+    e2_id: findIdx(p.e2_id),
+    e2_name: findIdx(p.e2_name),
+    e2_parent: findIdx(p.e2_parent),
+
+    e3_id: findIdx(p.e3_id),
+    e3_name: findIdx(p.e3_name),
+    e3_parent: findIdx(p.e3_parent),
+
+    e4_id: findIdx(p.e4_id),
+    e4_name: findIdx(p.e4_name),
+    e4_parent: findIdx(p.e4_parent)
+  };
+
+  console.log("[Sunburst] Matched column indexes:", idx);
+
+  // Dedup by id per layer
+  const domains = new Map<number, Domain>();
+  const e2 = new Map<number, Ebene2>();
+  const e3 = new Map<number, Ebene3>();
+  const e4 = new Map<number, Ebene4>();
+
+  let processed = 0;
+  for (const row of t.rows) {
+    processed++;
+
+    if (idx.domain_id !== -1 && idx.domain_name !== -1) {
+      const id = toNum(row[idx.domain_id]);
+      const name = toStr(row[idx.domain_name]);
+      if (id != null && name != null && !domains.has(id)) {
+        domains.set(id, { domain_id: id, domain_name: name });
+      }
+    }
+
+    if (idx.e2_id !== -1 && idx.e2_name !== -1 && idx.e2_parent !== -1) {
+      const id = toNum(row[idx.e2_id]);
+      const name = toStr(row[idx.e2_name]);
+      const parent = toNum(row[idx.e2_parent]);
+      if (id != null && name != null && parent != null && !e2.has(id)) {
+        e2.set(id, { level_id: id, level_name: name, parent_id: parent });
+      }
+    }
+
+    if (idx.e3_id !== -1 && idx.e3_name !== -1 && idx.e3_parent !== -1) {
+      const id = toNum(row[idx.e3_id]);
+      const name = toStr(row[idx.e3_name]);
+      const parent = toNum(row[idx.e3_parent]);
+      if (id != null && name != null && parent != null && !e3.has(id)) {
+        e3.set(id, { level_id: id, level_name: name, parent_id: parent });
+      }
+    }
+
+    if (idx.e4_id !== -1 && idx.e4_name !== -1 && idx.e4_parent !== -1) {
+      const id = toNum(row[idx.e4_id]);
+      const name = toStr(row[idx.e4_name]);
+      const parent = toNum(row[idx.e4_parent]);
+      if (id != null && name != null && parent != null && !e4.has(id)) {
+        e4.set(id, { level_id: id, level_name: name, parent_id: parent });
+      }
+    }
+  }
+
+  const result: Raw = {
+    domains: Array.from(domains.values()),
+    ebene2: Array.from(e2.values()),
+    ebene3: Array.from(e3.values()),
+    ebene4: Array.from(e4.values())
+  };
+
+  console.log("[Sunburst] extractRawFromTable: finished", {
+    inputRows: t.rows.length,
+    processed,
+    outSizes: {
+      domains: result.domains.length,
+      ebene2: result.ebene2.length,
+      ebene3: result.ebene3.length,
+      ebene4: result.ebene4.length
+    }
+  });
+
+  // Helpful warnings if critical columns are missing
+  if (result.domains.length === 0 && (idx.domain_id === -1 || idx.domain_name === -1)) {
+    console.warn("[Sunburst] No domains built. Ensure columns named like 'domain_id' and 'domain_name' are added.");
+  }
+
+  return result;
 }
 
 // -------------------------------------------
-// Visual class (rendering & interactions)
+// 2) Visual class (rendering & interactions)
 // -------------------------------------------
 export class Visual implements IVisual {
   private rootEl: HTMLElement;
@@ -195,6 +268,7 @@ export class Visual implements IVisual {
   private tooltipEl: HTMLElement;
   private crumbsEl: HTMLElement;
   private legendEl: HTMLElement;
+  private debugEl: HTMLElement;
 
   // D3 handles
   private svg!: d3.Selection<SVGSVGElement, unknown, null, undefined>;
@@ -207,13 +281,15 @@ export class Visual implements IVisual {
   private nodesList!: SunburstNode[];
 
   // Global Scale for textsize on arcs
-  private baseR?: number;      // captured on first render as your baseline
-  private globalScale: number = 1;     // R / baseR
+  private baseR?: number;
+  private globalScale: number = 1;
 
   private fontSizeOption: number = 12;
 
   constructor(options: VisualConstructorOptions) {
     this.rootEl = options.element;
+
+    console.log("[Sunburst] constructor");
 
     // Container structure
     this.rootEl.classList.add("sunburst-root");
@@ -246,7 +322,20 @@ export class Visual implements IVisual {
     this.tooltipEl.style.opacity = "0";
     this.rootEl.appendChild(this.tooltipEl);
 
-    // Minimal inline styles (also see visual.less)
+    // Debug banner (shows when nothing renders)
+    this.debugEl = document.createElement("div");
+    this.debugEl.style.position = "absolute";
+    this.debugEl.style.right = "8px";
+    this.debugEl.style.bottom = "8px";
+    this.debugEl.style.padding = "4px 6px";
+    this.debugEl.style.fontSize = "11px";
+    this.debugEl.style.borderRadius = "4px";
+    this.debugEl.style.background = "rgba(255, 196, 0, 0.15)";
+    this.debugEl.style.color = "#6b4f00";
+    this.debugEl.style.display = "none";
+    this.rootEl.appendChild(this.debugEl);
+
+    // Minimal inline styles
     const style = document.createElement("style");
     style.textContent = `
       .sunburst-root { position: relative; font-family: "Segoe UI", system-ui, -apple-system, sans-serif; }
@@ -268,7 +357,7 @@ export class Visual implements IVisual {
   }
 
   private initChart(): void {
-    // Create svg scaffolding once; sizes are set in update()
+    console.log("[Sunburst] initChart");
     this.svg = d3
       .select(this.visEl)
       .append("svg")
@@ -278,143 +367,165 @@ export class Visual implements IVisual {
   }
 
   public update(options: VisualUpdateOptions): void {
-    const width = Math.max(0, options.viewport.width);
-    const height = Math.max(0, options.viewport.height);
+    try {
+      console.log("[Sunburst] update called", {
+        viewport: options.viewport,
+        dataViews: options.dataViews?.length ?? 0
+      });
 
-    // Clear SVG dimensions and set new viewbox/size
-    const W = width;
-    const H = height;
-    let R = Math.max(10, Math.min(W, H) / 2 - 6);
+      const width = Math.max(0, options.viewport.width);
+      const height = Math.max(0, options.viewport.height);
 
-    // set base R and compute global scale relative to that baseline
-    if (this.baseR == null) this.baseR = R;
-    R *= 1;
-    this.globalScale = R / this.baseR;
+      const W = width;
+      const H = height;
+      let R = Math.max(10, Math.min(W, H) / 2 - 6);
 
-    // set width and height and viewbox
-    this.svg.attr("width", W).attr("height", H).attr("viewBox", [-W / 2, -H / 2, W, H].join(" "));
+      if (this.baseR == null) this.baseR = R;
+      R *= 1;
+      this.globalScale = R / this.baseR;
 
-    // -----------------------------
-    // Build data from Power BI fields
-    // -----------------------------
-    const dv = options.dataViews?.[0];
-    let data: NodeData = { name: "Wien", children: [] };
+      this.svg.attr("width", W).attr("height", H).attr("viewBox", [-W / 2, -H / 2, W, H].join(" "));
+      console.log("[Sunburst] viewport + radius", { W, H, R, globalScale: this.globalScale });
 
-    if (dv) {
-      const { rows, maxDepth } = buildRowsFromDataView(dv);
-      if (rows.length && maxDepth > 0) {
-        data = buildHierarchyFromFlat(rows, maxDepth);
+      // -----------------------------
+      // Read from Power BI table → Raw → your buildHierarchy
+      // -----------------------------
+      const dv = options.dataViews?.[0];
+      if (!dv) {
+        console.warn("[Sunburst] No dataView provided");
       }
+
+      let raw: Raw = { domains: [], ebene2: [], ebene3: [], ebene4: [] };
+      if (dv) raw = extractRawFromTable(dv);
+
+      const data: NodeData = buildHierarchy(raw);
+
+      // Build hierarchy & partition
+      const root = d3
+        .hierarchy<NodeData>(data)
+        .sum((d) => d.value ?? 0)
+        .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+
+      const partition = d3.partition<NodeData>().size([2 * Math.PI, R]);
+
+      const layoutRoot = partition(root) as SunburstNode;
+      const nodesList = layoutRoot.descendants().filter((d) => d.depth > 0) as SunburstNode[];
+
+      this.layoutRoot = layoutRoot;
+      this.nodesList = nodesList;
+
+      console.log("[Sunburst] layout summary", {
+        height: layoutRoot.height,
+        depth: layoutRoot.depth,
+        nodeCount: nodesList.length
+      });
+
+      // If no nodes, show small on-screen hint
+      if (nodesList.length === 0) {
+        this.debugEl.textContent = "No nodes to display. Check bound columns (domain_id/name, e2/e3/e4 ids & parents).";
+        this.debugEl.style.display = "block";
+      } else {
+        this.debugEl.style.display = "none";
+      }
+
+      // Color by top-level ancestor
+      const color = d3.scaleOrdinal<string, string>(d3.schemeTableau10);
+
+      const topAncestor = (d: SunburstNode): SunburstNode => {
+        if (d.depth === 1) return d;
+        const found = d.ancestors().find((a) => a.depth === 1) as SunburstNode | undefined;
+        return found ?? d;
+      };
+
+      const getFill = (d: SunburstNode): string => {
+        const base = color(topAncestor(d).data.name);
+        const maxDepth = layoutRoot.height;
+        const t = Math.max(0, Math.min(1, (d.depth - 1) / Math.max(maxDepth - 1, 1)));
+        return d3.interpolateLab(base, "#f8fafc")(t * 0.85);
+      };
+
+      // Arc generator
+      const arc = d3
+        .arc<ArcDatum>()
+        .startAngle((d) => d.x0)
+        .endAngle((d) => d.x1)
+        .padAngle((d) => Math.min((d.x1 - d.x0) / 2, 0.003))
+        .padRadius(R)
+        .innerRadius((d) => d.y0)
+        .outerRadius((d) => Math.max(d.y0, d.y1 - 1));
+
+      // Paths
+      const that = this;
+      this.path = this.g
+        .selectAll<SVGPathElement, SunburstNode>("path")
+        .data(nodesList, (d: any) => d.data.name + "|" + d.depth)
+        .join(
+          (enter) =>
+            enter
+              .append("path")
+              .attr("fill", (d) => getFill(d))
+              .attr("d", (d) => arc((d as any) as ArcDatum)!)
+              .attr("stroke", "#fff")
+              .attr("stroke-width", 1)
+              .style("cursor", "pointer")
+              .on("click", function (_event: MouseEvent, d: SunburstNode) {
+                that.zoomTo(d, arc);
+              })
+              .on("mousemove", (event: MouseEvent, d: SunburstNode) => {
+                const seq = this.safeAncestors(d).map((n) => n.data.name).join(" › ");
+                this.tooltipEl.style.opacity = "0.96";
+                this.tooltipEl.textContent = `${seq} (Elemente: ${Math.round(d.value ?? 0)})`;
+                const rect = this.rootEl.getBoundingClientRect();
+                const x = event.clientX - rect.left;
+                const y = event.clientY - rect.top;
+                this.tooltipEl.style.left = `${x + 8}px`;
+                this.tooltipEl.style.top = `${y + 8}px`;
+              })
+              .on("mouseleave", () => {
+                this.tooltipEl.style.opacity = "0";
+              }),
+          (update) =>
+            update
+              .attr("fill", (d) => getFill(d))
+              .attr("d", (d) => arc((d as any) as ArcDatum)!),
+          (exit) => exit.remove()
+        );
+
+      // Labels
+      this.label = this.g
+        .selectAll<SVGTextElement, SunburstNode>("text")
+        .data(nodesList, (d: any) => d.data.name + "|" + d.depth)
+        .join(
+          (enter) =>
+            enter
+              .append("text")
+              .attr("dy", "0.32em")
+              .attr("fill", "#0f172a")
+              .attr("font-size", (d: any) => (this.fontSizeOption == 1) ? this.scaleFontSizeForEach(d) : this.scaleFontSizeForEverything(d))
+              .attr("font-weight", 600 as any)
+              .attr("text-anchor", "middle")
+              .style("user-select", "none")
+              .style("visibility", (d) => (this.labelVisible((d as any) as ArcDatum) ? "visible" : "hidden"))
+              .attr("transform", (d) => this.labelTransform((d as any) as ArcDatum))
+              .text((d) => (this.fontSizeOption == 1) ? d.data.name : this.truncatedText(d)),
+          (update) =>
+            update
+              .style("visibility", (d) => (this.labelVisible((d as any) as ArcDatum) ? "visible" : "hidden"))
+              .attr("transform", (d) => this.labelTransform((d as any) as ArcDatum))
+              .text((d) => (this.fontSizeOption == 1) ? d.data.name : this.truncatedText(d)),
+          (exit) => exit.remove()
+        );
+
+      // Legend + crumbs
+      this.updateLegend(color);
+      this.updateCrumbs(layoutRoot, arc);
+
+      this.zoomTo(layoutRoot, arc, 0);
+    } catch (err) {
+      console.error("[Sunburst] update error", err);
+      this.debugEl.textContent = "Error in update() — see console for details.";
+      this.debugEl.style.display = "block";
     }
-
-    // Build hierarchy & partition
-    const root = d3
-      .hierarchy<NodeData>(data)
-      .sum((d) => d.value ?? 0)
-      .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
-
-    const partition = d3.partition<NodeData>().size([2 * Math.PI, R]);
-
-    const layoutRoot = partition(root) as SunburstNode;
-    const nodesList = layoutRoot.descendants().filter((d) => d.depth > 0) as SunburstNode[];
-
-    this.layoutRoot = layoutRoot;
-    this.nodesList = nodesList;
-
-    // Color by top-level ancestor
-    const color = d3.scaleOrdinal<string, string>(d3.schemeTableau10);
-
-    const topAncestor = (d: SunburstNode): SunburstNode => {
-      if (d.depth === 1) return d;
-      const found = d.ancestors().find((a) => a.depth === 1) as SunburstNode | undefined;
-      return found ?? d;
-    };
-
-    const getFill = (d: SunburstNode): string => {
-      const base = color(topAncestor(d).data.name);
-      const maxDepth = layoutRoot.height; // excluding root
-      const t = Math.max(0, Math.min(1, (d.depth - 1) / Math.max(maxDepth - 1, 1)));
-      return d3.interpolateLab(base, "#f8fafc")(t * 0.85);
-    };
-
-    // Arc generator uses the current/target coords during transitions
-    const arc = d3
-      .arc<ArcDatum>()
-      .startAngle((d) => d.x0)
-      .endAngle((d) => d.x1)
-      .padAngle((d) => Math.min((d.x1 - d.x0) / 2, 0.003))
-      .padRadius(R)
-      .innerRadius((d) => d.y0)
-      .outerRadius((d) => Math.max(d.y0, d.y1 - 1));
-
-    // BIND paths
-    const that = this;
-    this.path = this.g
-      .selectAll<SVGPathElement, SunburstNode>("path")
-      .data(nodesList, (d: any) => d.data.name + "|" + d.depth)
-      .join(
-        (enter) =>
-          enter
-            .append("path")
-            .attr("fill", (d) => getFill(d))
-            .attr("d", (d) => arc((d as any) as ArcDatum)!)
-            .attr("stroke", "#fff")
-            .attr("stroke-width", 1)
-            .style("cursor", "pointer")
-            .on("click", function (_event: MouseEvent, d: SunburstNode) {
-              that.zoomTo(d, arc);
-            })
-            .on("mousemove", (event: MouseEvent, d: SunburstNode) => {
-              const seq = this.safeAncestors(d).map((n) => n.data.name).join(" › ");
-              this.tooltipEl.style.opacity = "0.96";
-              this.tooltipEl.textContent = `${seq} (Elemente: ${Math.round(d.value ?? 0)})`;
-              const rect = this.rootEl.getBoundingClientRect();
-              const x = event.clientX - rect.left;
-              const y = event.clientY - rect.top;
-              this.tooltipEl.style.left = `${x + 8}px`;
-              this.tooltipEl.style.top = `${y + 8}px`;
-            })
-            .on("mouseleave", () => {
-              this.tooltipEl.style.opacity = "0";
-            }),
-        (update) =>
-          update
-            .attr("fill", (d) => getFill(d))
-            .attr("d", (d) => arc((d as any) as ArcDatum)!),
-        (exit) => exit.remove()
-      );
-
-    // LABELS
-    this.label = this.g
-      .selectAll<SVGTextElement, SunburstNode>("text")
-      .data(nodesList, (d: any) => d.data.name + "|" + d.depth)
-      .join(
-        (enter) =>
-          enter
-            .append("text")
-            .attr("dy", "0.32em")
-            .attr("fill", "#0f172a")
-            .attr("font-size", (d: any) => (this.fontSizeOption == 1) ? this.scaleFontSizeForEach(d) : this.scaleFontSizeForEverything(d))
-            .attr("font-weight", 600 as any)
-            .attr("text-anchor", "middle")
-            .style("user-select", "none")
-            .style("visibility", (d) => (this.labelVisible((d as any) as ArcDatum) ? "visible" : "hidden"))
-            .attr("transform", (d) => this.labelTransform((d as any) as ArcDatum))
-            .text((d) => (this.fontSizeOption == 1) ? d.data.name : this.truncatedText(d)),
-        (update) =>
-          update
-            .style("visibility", (d) => (this.labelVisible((d as any) as ArcDatum) ? "visible" : "hidden"))
-            .attr("transform", (d) => this.labelTransform((d as any) as ArcDatum))
-            .text((d) => (this.fontSizeOption == 1) ? d.data.name : this.truncatedText(d)),
-        (exit) => exit.remove()
-      );
-
-    // Legend + crumbs
-    this.updateLegend(color);
-    this.updateCrumbs(layoutRoot, arc);
-
-    // Initial "zoom" to root (no-op but sets current targets)
-    this.zoomTo(layoutRoot, arc, 0);
   }
 
   // ------------- Helpers -------------
@@ -422,25 +533,22 @@ export class Visual implements IVisual {
   private labelVisible(d: ArcDatum): boolean {
     const a = d.x1 - d.x0;
     const r = d.y1 - d.y0;
-    return a > 0.03 && r > 12; // angular and radial room
+    return a > 0.03 && r > 12;
   }
 
   private scaleFontSizeForEach(d: any): number {
     const base = 10;
-    const referenceWordSize = 11;   // reference length
+    const referenceWordSize = 11;
     const nameLen = Math.max(1, d?.data?.name?.length || 1);
 
-    // word-length scaling (always applied)
     const lengthScale = referenceWordSize / nameLen;
     let size = base * lengthScale;
 
-    // usable angular width in degrees
     const raw = d.x1 - d.x0;
     const pad = Math.min(raw / 2, 0.003);
-    const effective = Math.max(0, raw - 2 * pad);   // radians
-    const deg = effective * 180 / Math.PI;
+    const effective = Math.max(0, raw - 2 * pad);
+    const deg = (effective * 180) / Math.PI;
 
-    // if name shorter than reference AND angle <= 5°, apply angle factor
     if (nameLen < referenceWordSize && deg <= 5) {
       const angleFactor = deg / 5;
       size *= angleFactor;
@@ -454,7 +562,7 @@ export class Visual implements IVisual {
   private truncatedText(d: any): string {
     const length = 8;
     if (d.data.name.length <= length) return d.data.name;
-    const myTruncatedString = `${d.data.name.substring(0,length)}...`;
+    const myTruncatedString = `${d.data.name.substring(0, length)}...`;
     return myTruncatedString;
   }
 
@@ -464,7 +572,7 @@ export class Visual implements IVisual {
   }
 
   private labelTransform(d: ArcDatum): string {
-    const x = ((d.x0 + d.x1) / 2) * (180 / Math.PI); // degrees
+    const x = ((d.x0 + d.x1) / 2) * (180 / Math.PI);
     const y = (d.y0 + d.y1) / 2;
     return `rotate(${x - 90}) translate(${y},0) rotate(${x < 180 ? 0 : 180})`;
   }
@@ -497,7 +605,6 @@ export class Visual implements IVisual {
       .map((name, i) => (i === seq.length - 1 ? `<strong>${name}</strong>` : `<a href="#" data-depth="${i}">${name}</a>`))
       .join('<span class="sep">›</span>');
 
-    // make earlier crumbs clickable to jump back
     this.crumbsEl.querySelectorAll<HTMLAnchorElement>("a").forEach((aEl) => {
       aEl.addEventListener(
         "click",
@@ -505,7 +612,6 @@ export class Visual implements IVisual {
           e.preventDefault();
           const depth = Number(aEl.getAttribute("data-depth"));
           const label = aEl.textContent ?? "";
-          // root is depth 0 (not in nodes), other depths match nodes
           const target =
             depth === 0
               ? this.layoutRoot
@@ -520,13 +626,9 @@ export class Visual implements IVisual {
   private zoomTo(p: SunburstNode, arc: d3.Arc<any, ArcDatum>, duration: number = 650): void {
     if (!p) return;
 
-    // Hide tooltip
     this.tooltipEl.style.opacity = "0";
-
-    // Update crumbs
     this.updateCrumbs(p, arc);
 
-    // Compute target positions for all nodes
     this.layoutRoot.each((d: SunburstNode) => {
       d.target = {
         x0: Math.max(0, Math.min(1, (d.x0 - p.x0) / (p.x1 - p.x0))) * 2 * Math.PI,
@@ -538,7 +640,6 @@ export class Visual implements IVisual {
 
     const t = this.g.transition().duration(duration);
 
-    // Transition paths
     this.path
       // @ts-ignore
       .transition(t)
@@ -553,7 +654,6 @@ export class Visual implements IVisual {
       })
       .attrTween("d", (d: SunburstNode) => () => arc(d.current!)!);
 
-    // Show/hide labels based on final position; animate transforms
     this.label
       .filter((d: SunburstNode) => !!d.target && this.labelVisible(d.target))
       // @ts-ignore

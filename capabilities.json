@@ -1,23 +1,27 @@
 {
   "privileges": [],
   "dataRoles": [
-    { "name": "levelNames", "kind": "Grouping", "displayName": "Level Names" },
-    { "name": "levelKeys",  "kind": "Grouping", "displayName": "Level Keys (optional)" },
-    { "name": "measure",    "kind": "Measure",  "displayName": "Value (optional)" }
+    {
+      "name": "columns",
+      "kind": "Grouping",
+      "displayName": "Fields (IDs, Names, Parents)"
+    }
   ],
   "dataViewMappings": [
     {
       "table": {
         "rows": {
           "select": [
-            { "for": { "in": "levelNames" } },
-            { "for": { "in": "levelKeys" } },
-            { "for": { "in": "measure" } }
+            { "for": { "in": "columns" } }
           ]
         }
-      }
+      },
+      "conditions": [
+        { "columns": { "min": 1, "max": 60 } }
+      ]
     }
   ],
+  "suppressDefaultTitle": true,
   "objects": {
     "labels": {
       "displayName": "Labels",
