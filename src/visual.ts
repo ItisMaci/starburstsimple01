@@ -3,7 +3,6 @@
 *  MIT License
 */
 
-// src/visual.ts
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 
@@ -110,7 +109,7 @@ function buildHierarchy(rawData: Raw): NodeData {
 }
 
 // -----------------------------
-// 1.5) Table→Raw extractor (debug-heavy)
+// 1.5) Table→Raw extractor (supports: layered tables OR adjacency table)
 // -----------------------------
 function extractRawFromTable(dv: powerbi.DataView): Raw {
   const empty: Raw = { domains: [], ebene2: [], ebene3: [], ebene4: [] };
@@ -151,6 +150,7 @@ function extractRawFromTable(dv: powerbi.DataView): Raw {
   };
   const toStr = (v: any): string | null => (v === null || v === undefined ? null : String(v));
 
+  // --------- Layered-table patterns (domains/e2/e3/e4 columns can be present in any order) ---------
   const p = {
     domain_id: [/^domain[_\s]?id$/i, /\.domain[_\s]?id$/i] as const,
     domain_name: [/^domain[_\s]?name$/i, /\.domain[_\s]?name$/i] as const,
@@ -185,26 +185,150 @@ function extractRawFromTable(dv: powerbi.DataView): Raw {
     e4_parent: findIdx(p.e4_parent)
   };
 
-  console.log("[Sunburst] Matched column indexes:", idx);
+  console.log("[Sunburst] Matched layered indexes:", idx);
 
-  // Dedup by id per layer
+  // --------- NEW: adjacency-mode (single table level_id, level_name|name, optional parent_id) ---------
+  const adjacencyIdx = {
+    level_id: findIdx([/^level[_\s]?id$/i, /\.level[_\s]?id$/i, /^id$/i, /\.id$/i]),
+    level_name: findIdx([/^level[_\s]?name$/i, /\.level[_\s]?name$/i, /^name$/i]),
+    parent_id: findIdx([/^parent[_\s]?id$/i, /\.parent[_\s]?id$/i])
+  };
+  console.log("[Sunburst] Adjacency check:", adjacencyIdx);
+
+  if (adjacencyIdx.level_name !== -1) {
+    type NodeRec = { id: number; name: string; parent: number | null };
+    const nodes: NodeRec[] = [];
+
+    let autoId = 1;
+    const colHasLevelId = adjacencyIdx.level_id !== -1;
+    const colHasParentId = adjacencyIdx.parent_id !== -1;
+
+    // Build node list (id may be synthesized; parent may be null)
+    for (const row of t.rows) {
+      const name = toStr(row[adjacencyIdx.level_name]);
+      if (name == null) continue;
+
+      const id = colHasLevelId ? toNum(row[adjacencyIdx.level_id]) ?? (autoId++) : (autoId++);
+      const parent = colHasParentId ? toNum(row[adjacencyIdx.parent_id]) : null;
+
+      nodes.push({ id, name, parent });
+    }
+
+    // children index
+    const childrenByParent = new Map<number | null, number[]>();
+    for (const n of nodes) {
+      const pId = n.parent ?? null; // domains may have no parent_id → root
+      const arr = childrenByParent.get(pId) ?? [];
+      arr.push(n.id);
+      childrenByParent.set(pId, arr);
+    }
+
+    // roots: parent null/0 or not pointing to any existing id
+    const idSet = new Set(nodes.map(n => n.id));
+    const roots = nodes.filter(n => n.parent == null || n.parent === 0 || !idSet.has(n.parent));
+    console.log("[Sunburst] Adjacency roots:", roots.length);
+
+    // depth BFS
+    const parentById = new Map<number, number | null>();
+    for (const n of nodes) parentById.set(n.id, n.parent ?? null);
+
+    const depthById = new Map<number, number>();
+    const q: number[] = [];
+    for (const r of roots) { depthById.set(r.id, 1); q.push(r.id); }
+    while (q.length) {
+      const cur = q.shift()!;
+      const dcur = depthById.get(cur)!;
+      for (const k of (childrenByParent.get(cur) ?? [])) {
+        if (!depthById.has(k)) { depthById.set(k, dcur + 1); q.push(k); }
+      }
+    }
+
+    function ancestorAtDepth(id: number, targetDepth: number): number | null {
+      let cur: number | null | undefined = id, guard = 0;
+      while (cur != null && guard++ < 5000) {
+        const d = depthById.get(cur);
+        if (d === targetDepth) return cur;
+        cur = parentById.get(cur) ?? null;
+      }
+      return null;
+    }
+
+    // Map to Raw: depth 1→domain, 2→ebene2, 3→ebene3, ≥4→ebene4 (clamped under nearest depth-3 ancestor)
+    const domains = new Map<number, Domain>();
+    const e2 = new Map<number, Ebene2>();
+    const e3 = new Map<number, Ebene3>();
+    const e4 = new Map<number, Ebene4>();
+
+    for (const n of nodes) {
+      const d = depthById.get(n.id) ?? 1;
+      if (d <= 1) {
+        if (!domains.has(n.id)) domains.set(n.id, { domain_id: n.id, domain_name: n.name });
+      } else if (d === 2) {
+        const p1 = ancestorAtDepth(n.id, 1);
+        if (p1 != null && !e2.has(n.id)) e2.set(n.id, { level_id: n.id, level_name: n.name, parent_id: p1 });
+      } else if (d === 3) {
+        const p2 = ancestorAtDepth(n.id, 2);
+        if (p2 != null && !e3.has(n.id)) e3.set(n.id, { level_id: n.id, level_name: n.name, parent_id: p2 });
+      } else {
+        const p3 = ancestorAtDepth(n.id, 3) ?? ancestorAtDepth(n.id, 2) ?? ancestorAtDepth(n.id, 1);
+        if (p3 != null && !e4.has(n.id)) e4.set(n.id, { level_id: n.id, level_name: n.name, parent_id: p3 });
+      }
+    }
+
+    const resultAdj: Raw = {
+      domains: Array.from(domains.values()),
+      ebene2: Array.from(e2.values()),
+      ebene3: Array.from(e3.values()),
+      ebene4: Array.from(e4.values())
+    };
+
+    console.log("[Sunburst] Adjacency→Raw", {
+      nodes: nodes.length,
+      roots: roots.length,
+      outSizes: {
+        domains: resultAdj.domains.length,
+        ebene2: resultAdj.ebene2.length,
+        ebene3: resultAdj.ebene3.length,
+        ebene4: resultAdj.ebene4.length
+      }
+    });
+
+    return resultAdj; // short-circuit: adjacency handled
+  }
+
+  // --------- Layered-table path (your original multi-table layout) ---------
   const domains = new Map<number, Domain>();
   const e2 = new Map<number, Ebene2>();
   const e3 = new Map<number, Ebene3>();
   const e4 = new Map<number, Ebene4>();
 
   let processed = 0;
-  for (const row of t.rows) {
+
+  // If only domain_name present, synthesize ids so we still render ring 1
+  const synthDomainIds = (idx.domain_id === -1) && (idx.domain_name !== -1);
+  let domainAutoId = 1;
+
+  for (let rowIndex = 0; rowIndex < t.rows.length; rowIndex++) {
+    const row = t.rows[rowIndex];
     processed++;
 
-    if (idx.domain_id !== -1 && idx.domain_name !== -1) {
-      const id = toNum(row[idx.domain_id]);
+    // Domains
+    if (idx.domain_name !== -1) {
       const name = toStr(row[idx.domain_name]);
-      if (id != null && name != null && !domains.has(id)) {
-        domains.set(id, { domain_id: id, domain_name: name });
+      if (name != null) {
+        let id: number | null = null;
+        if (!synthDomainIds && idx.domain_id !== -1) {
+          id = toNum(row[idx.domain_id]);
+        } else {
+          id = domainAutoId++;
+        }
+        if (id != null && !domains.has(id)) {
+          domains.set(id, { domain_id: id, domain_name: name });
+        }
       }
     }
 
+    // Ebene 2
     if (idx.e2_id !== -1 && idx.e2_name !== -1 && idx.e2_parent !== -1) {
       const id = toNum(row[idx.e2_id]);
       const name = toStr(row[idx.e2_name]);
@@ -214,6 +338,7 @@ function extractRawFromTable(dv: powerbi.DataView): Raw {
       }
     }
 
+    // Ebene 3
     if (idx.e3_id !== -1 && idx.e3_name !== -1 && idx.e3_parent !== -1) {
       const id = toNum(row[idx.e3_id]);
       const name = toStr(row[idx.e3_name]);
@@ -223,6 +348,7 @@ function extractRawFromTable(dv: powerbi.DataView): Raw {
       }
     }
 
+    // Ebene 4
     if (idx.e4_id !== -1 && idx.e4_name !== -1 && idx.e4_parent !== -1) {
       const id = toNum(row[idx.e4_id]);
       const name = toStr(row[idx.e4_name]);
@@ -233,30 +359,29 @@ function extractRawFromTable(dv: powerbi.DataView): Raw {
     }
   }
 
-  const result: Raw = {
+  const resultLayered: Raw = {
     domains: Array.from(domains.values()),
     ebene2: Array.from(e2.values()),
     ebene3: Array.from(e3.values()),
     ebene4: Array.from(e4.values())
   };
 
-  console.log("[Sunburst] extractRawFromTable: finished", {
+  console.log("[Sunburst] Layered extract finished", {
     inputRows: t.rows.length,
     processed,
     outSizes: {
-      domains: result.domains.length,
-      ebene2: result.ebene2.length,
-      ebene3: result.ebene3.length,
-      ebene4: result.ebene4.length
+      domains: resultLayered.domains.length,
+      ebene2: resultLayered.ebene2.length,
+      ebene3: resultLayered.ebene3.length,
+      ebene4: resultLayered.ebene4.length
     }
   });
 
-  // Helpful warnings if critical columns are missing
-  if (result.domains.length === 0 && (idx.domain_id === -1 || idx.domain_name === -1)) {
-    console.warn("[Sunburst] No domains built. Ensure columns named like 'domain_id' and 'domain_name' are added.");
+  if (resultLayered.domains.length === 0 && idx.domain_name === -1) {
+    console.warn("[Sunburst] No top-level nodes found. Provide either adjacency columns (level_id/level_name[/parent_id]) or domain_id/domain_name.");
   }
 
-  return result;
+  return resultLayered;
 }
 
 // -------------------------------------------
@@ -322,7 +447,7 @@ export class Visual implements IVisual {
     this.tooltipEl.style.opacity = "0";
     this.rootEl.appendChild(this.tooltipEl);
 
-    // Debug banner (shows when nothing renders)
+    // Debug banner
     this.debugEl = document.createElement("div");
     this.debugEl.style.position = "absolute";
     this.debugEl.style.right = "8px";
@@ -420,9 +545,9 @@ export class Visual implements IVisual {
         nodeCount: nodesList.length
       });
 
-      // If no nodes, show small on-screen hint
       if (nodesList.length === 0) {
-        this.debugEl.textContent = "No nodes to display. Check bound columns (domain_id/name, e2/e3/e4 ids & parents).";
+        this.debugEl.textContent =
+          "No nodes to display. Drop columns like: level_id, level_name (name), parent_id OR domain_id/domain_name (+ e2/e3/e4).";
         this.debugEl.style.display = "block";
       } else {
         this.debugEl.style.display = "none";
