@@ -9,7 +9,6 @@ export declare class Visual implements IVisual {
     private tooltipEl;
     private crumbsEl;
     private legendEl;
-    private debugEl;
     private svg;
     private g;
     private path;

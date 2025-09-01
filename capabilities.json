@@ -1,33 +1,44 @@
 {
   "privileges": [],
   "dataRoles": [
-    {
-      "name": "columns",
-      "kind": "Grouping",
-      "displayName": "Fields (IDs, Names, Parents)"
-    }
+    { "name": "Level1", "kind": "Grouping", "displayName": "Level 1" },
+    { "name": "Level2", "kind": "Grouping", "displayName": "Level 2" },
+    { "name": "Level3", "kind": "Grouping", "displayName": "Level 3" },
+    { "name": "Level4", "kind": "Grouping", "displayName": "Level 4" },
+    { "name": "Value",  "kind": "Measure",  "displayName": "Value (optional)" }
   ],
   "dataViewMappings": [
     {
-      "table": {
-        "rows": {
+      "conditions": [
+        {
+          "Level1": { "min": 1, "max": 1 },
+          "Level2": { "max": 1 },
+          "Level3": { "max": 1 },
+          "Level4": { "max": 1 },
+          "Value":  { "max": 1 }
+        }
+      ],
+      "categorical": {
+        "categories": {
           "select": [
-            { "for": { "in": "columns" } }
+            { "for": { "in": "Level1" } },
+            { "for": { "in": "Level2" } },
+            { "for": { "in": "Level3" } },
+            { "for": { "in": "Level4" } }
+          ]
+        },
+        "values": {
+          "select": [
+            { "for": { "in": "Value" } }
           ]
         }
-      },
-      "conditions": [
-        { "columns": { "min": 1, "max": 60 } }
-      ]
-    }
-  ],
-  "suppressDefaultTitle": true,
-  "objects": {
-    "labels": {
-      "displayName": "Labels",
-      "properties": {
-        "fontSize": { "displayName": "Font size", "type": { "integer": true } }
       }
     }
-  }
+  ],
+  "drilldown": {
+    "roles": ["Level1", "Level2", "Level3", "Level4"]
+  },
+  "objects": {},
+  "supportsHighlight": false,
+  "sorting": { "default": {} }
 }
